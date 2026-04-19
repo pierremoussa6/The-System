@@ -6,6 +6,9 @@ import type {
   InterestCategory,
   JobProfile,
   OnboardingAnalysisResult,
+  PenaltyAction,
+  PenaltyCategory,
+  PenaltyStyle,
   QuestJobFocus,
   QuestPreferenceProfile,
   QuestSource,
@@ -48,6 +51,22 @@ const questSources = [
   "discipline",
   "hybrid",
 ] as const;
+
+const penaltyCategories = [
+  "financial",
+  "learning",
+  "fitness",
+  "nutrition",
+  "recovery",
+  "environment",
+  "focus",
+  "service",
+  "main_job",
+  "secondary_job",
+  "reflection",
+] as const;
+
+const penaltyIntensities = ["Light", "Moderate", "Strict"] as const;
 
 const jobProfileSchema = {
   type: "object",
@@ -252,6 +271,26 @@ const analysisSchema = {
             required: ["strength", "vitality", "discipline", "focus"],
           },
           penalty: { type: "string" },
+          penaltyAction: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              category: { type: "string", enum: penaltyCategories },
+              title: { type: "string" },
+              description: { type: "string" },
+              intensity: { type: "string", enum: penaltyIntensities },
+              completionCondition: { type: "string" },
+              amountSek: { type: ["number", "null"] },
+            },
+            required: [
+              "category",
+              "title",
+              "description",
+              "intensity",
+              "completionCondition",
+              "amountSek",
+            ],
+          },
           tags: {
             type: "array",
             minItems: 2,
@@ -277,6 +316,7 @@ const analysisSchema = {
           "xp",
           "statRewards",
           "penalty",
+          "penaltyAction",
           "tags",
           "source",
           "jobFocus",
@@ -311,6 +351,9 @@ type RawAnalysis = Omit<AiSystemAnalysis, "specialQuests" | "personalization"> &
   personalization: OnboardingAnalysisResult;
   specialQuests: Array<Omit<AiSpecialQuestSuggestion, "statRewards"> & {
     statRewards: RawStatRewards;
+    penaltyAction: Omit<PenaltyAction, "amountSek"> & {
+      amountSek: number | null;
+    };
     source: QuestSource;
     jobFocus: QuestJobFocus;
     durationMinutes: number;
@@ -355,7 +398,11 @@ Special quest rules:
 - Avoid repeating the same title structure or action pattern.
 - XP should usually be between 18 and 65.
 - For statRewards, always include all 4 keys: strength, vitality, discipline, focus. Use null for unrewarded stats.
-- Penalties should match penaltyStyle and never be humiliating, unsafe, or medically risky.
+- Penalties are corrective side quests, not shame. They must match penaltyStyle and never be humiliating, unsafe, medically risky, or financially harmful.
+- penaltyAction must be specific, measurable, and useful for self-development. Prefer actions such as learning repair, savings transfer, environment reset, walk/mobility, meal prep, focused reflection, service/helping action, Main Job repair, or Secondary Job practice.
+- Financial penalties must be framed as voluntary savings/accountability, never spending or donating under pressure. Use SEK. Only use amounts that fit the user's profile and penaltyStyle: Light 50-100 SEK, Moderate 100-300 SEK, Strict 300-1000 SEK. If uncertain, choose a non-financial penalty.
+- The readable penalty string should summarize penaltyAction in one sentence.
+- Vary penaltyAction.category across the special quest set. Do not make every penalty a screen ban or entertainment restriction.
 - Quest tone should feel immersive, like The System is using the player's actual life as the game world.
 `;
 }
@@ -484,10 +531,74 @@ function sanitizeStatRewards(rewards: RawStatRewards): Partial<Stats> {
   return cleaned;
 }
 
+function sanitizePenaltyCategory(value: string): PenaltyCategory {
+  const allowed = new Set<string>(penaltyCategories);
+  return allowed.has(value) ? (value as PenaltyCategory) : "reflection";
+}
+
+function sanitizePenaltyIntensity(value: string, fallback: PenaltyStyle): PenaltyStyle {
+  const allowed = new Set<string>(penaltyIntensities);
+  return allowed.has(value) ? (value as PenaltyStyle) : fallback;
+}
+
+function sanitizeAmountSek(value: number | null, intensity: PenaltyStyle) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  const maxByIntensity: Record<PenaltyStyle, number> = {
+    Light: 100,
+    Moderate: 300,
+    Strict: 1000,
+  };
+
+  return Math.round(Math.min(value, maxByIntensity[intensity]));
+}
+
+function formatPenaltyAction(action: PenaltyAction) {
+  const amountText =
+    action.category === "financial" && action.amountSek
+      ? ` Transfer ${action.amountSek} SEK to savings.`
+      : "";
+
+  return `${action.title}: ${action.description}${amountText} Completion: ${action.completionCondition}`;
+}
+
+function sanitizePenaltyAction(
+  raw: RawAnalysis["specialQuests"][number]["penaltyAction"] | undefined,
+  profile: UserProfile
+): PenaltyAction {
+  const intensity = sanitizePenaltyIntensity(
+    raw?.intensity ?? profile.penaltyStyle,
+    profile.penaltyStyle
+  );
+  const category = sanitizePenaltyCategory(raw?.category ?? "reflection");
+  const amountSek = sanitizeAmountSek(raw?.amountSek ?? null, intensity);
+
+  return {
+    category,
+    title: boundedString(raw?.title ?? "", "Corrective Action", 70),
+    description: boundedString(
+      raw?.description ?? "",
+      "Complete a small action that repairs momentum instead of only removing comfort.",
+      180
+    ),
+    intensity,
+    completionCondition: boundedString(
+      raw?.completionCondition ?? "",
+      "Finish the corrective action before leisure.",
+      160
+    ),
+    ...(category === "financial" && amountSek ? { amountSek } : {}),
+  };
+}
+
 function sanitizeSpecialQuest(
   quest: RawAnalysis["specialQuests"][number],
   profile: UserProfile
 ): AiSpecialQuestSuggestion {
+  const penaltyAction = sanitizePenaltyAction(quest.penaltyAction, profile);
+
   return {
     title: boundedString(quest.title, "Personalized Special Quest", 90),
     description: boundedString(
@@ -497,11 +608,8 @@ function sanitizeSpecialQuest(
     ),
     xp: Math.round(Math.max(10, Math.min(90, quest.xp))),
     statRewards: sanitizeStatRewards(quest.statRewards),
-    penalty: boundedString(
-      quest.penalty,
-      "Complete a small corrective action before entertainment.",
-      220
-    ),
+    penalty: boundedString(quest.penalty, formatPenaltyAction(penaltyAction), 240),
+    penaltyAction,
     tags: sanitizeStringArray(quest.tags, ["personalized", "special"]),
     source: quest.source,
     jobFocus: quest.jobFocus,

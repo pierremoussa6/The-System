@@ -9,7 +9,9 @@ import type {
   InterestCategory,
   OnboardingAnalysisResult,
   LogEntry,
+  PenaltyAction,
   PenaltyNotice,
+  PenaltyStyle,
   QuestJobFocus,
   QuestSource,
   Quest,
@@ -79,7 +81,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Read 10 pages of a useful book today.",
     xp: 15,
     statRewards: { focus: 1, discipline: 1 },
-    penalty: "No series tonight if ignored.",
+    penalty: "Read 5 pages and write one useful note before leisure.",
     preferredBuilds: ["Scholar", "Monk", "Balanced"],
     tags: ["reading", "focus"],
   },
@@ -89,7 +91,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Spend 15 focused minutes coding or learning programming.",
     xp: 20,
     statRewards: { focus: 1, discipline: 1 },
-    penalty: "No YouTube entertainment tonight if ignored.",
+    penalty: "Do a 10-minute learning repair block before entertainment.",
     preferredBuilds: ["Scholar", "Balanced"],
     tags: ["programming", "study", "focus"],
   },
@@ -99,7 +101,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Play chess or solve tactical puzzles for 10 minutes.",
     xp: 15,
     statRewards: { focus: 1 },
-    penalty: "No social media tonight if ignored.",
+    penalty: "Solve one tactical puzzle and write the missed pattern.",
     preferredBuilds: ["Scholar", "Balanced"],
     tags: ["chess", "focus"],
   },
@@ -109,7 +111,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Do a 10-minute stretching or mobility session.",
     xp: 15,
     statRewards: { vitality: 1, discipline: 1 },
-    penalty: "Add 15 minutes of walking tomorrow if ignored.",
+    penalty: "Complete 10 minutes of mobility before passive scrolling.",
     preferredBuilds: ["Endurance", "Warrior", "Balanced"],
     tags: ["recovery", "mobility", "lifestyle"],
   },
@@ -119,7 +121,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Write down your thoughts, goals, or reflections for 5 minutes.",
     xp: 10,
     statRewards: { discipline: 1, focus: 1 },
-    penalty: "No gaming tonight if ignored.",
+    penalty: "Write a 5-minute after-action note before gaming or scrolling.",
     preferredBuilds: ["Monk", "Scholar", "Balanced"],
     tags: ["reflection", "discipline"],
   },
@@ -129,7 +131,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Complete 30 push-ups today, broken into sets if needed.",
     xp: 20,
     statRewards: { strength: 1, discipline: 1 },
-    penalty: "Add a cold shower tomorrow if ignored.",
+    penalty: "Complete one safe low-intensity strength set before leisure.",
     preferredBuilds: ["Warrior", "Balanced"],
     tags: ["fitness", "strength"],
     minFitness: "Intermediate",
@@ -140,7 +142,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Take a focused 20-minute walk today.",
     xp: 15,
     statRewards: { vitality: 1 },
-    penalty: "No snacks tonight if ignored.",
+    penalty: "Take a 10-minute walk and prepare water before snacks.",
     preferredBuilds: ["Endurance", "Balanced"],
     tags: ["fitness", "lifestyle", "recovery"],
   },
@@ -150,7 +152,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Sit quietly and meditate for 5 minutes.",
     xp: 15,
     statRewards: { discipline: 1, focus: 1 },
-    penalty: "No music during commute tomorrow if ignored.",
+    penalty: "Complete a 3-minute breathing reset before the next screen session.",
     preferredBuilds: ["Monk", "Balanced"],
     tags: ["discipline", "recovery", "focus"],
   },
@@ -160,7 +162,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Do 10 minutes of language practice today.",
     xp: 15,
     statRewards: { focus: 1, discipline: 1 },
-    penalty: "No casual scrolling tonight if ignored.",
+    penalty: "Complete 10 minutes of language repair before casual scrolling.",
     preferredBuilds: ["Scholar", "Balanced"],
     tags: ["language", "study", "focus"],
   },
@@ -170,7 +172,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description: "Do a 15-minute wind-down routine before bed.",
     xp: 15,
     statRewards: { vitality: 1, discipline: 1 },
-    penalty: "No caffeine after lunch tomorrow if ignored.",
+    penalty: "Prepare tomorrow's sleep trigger before entertainment.",
     preferredBuilds: ["Endurance", "Monk", "Balanced"],
     tags: ["sleep", "recovery", "lifestyle"],
   },
@@ -192,7 +194,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
       "Take a steady 25-minute walk where breathing stays controlled and sustainable.",
     xp: 25,
     statRewards: { vitality: 2 },
-    penalty: "No passive scrolling until a 10-minute walk is completed tomorrow.",
+    penalty: "Complete a 10-minute walk before passive scrolling tomorrow.",
     preferredBuilds: ["Endurance", "Balanced"],
     tags: ["fitness", "recovery", "lifestyle"],
   },
@@ -203,7 +205,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
       "Complete one 25-minute focused block on the most important study or work task.",
     xp: 30,
     statRewards: { focus: 2, discipline: 1 },
-    penalty: "Block the most distracting app for the next evening.",
+    penalty: "Block the most distracting app until one focus block is completed.",
     preferredBuilds: ["Scholar", "Monk", "Balanced"],
     tags: ["focus", "study", "discipline"],
   },
@@ -225,7 +227,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
       "Clear one visible space for 10 minutes so your environment stops draining attention.",
     xp: 15,
     statRewards: { discipline: 1, focus: 1 },
-    penalty: "No entertainment until the same space is reset tomorrow.",
+    penalty: "Reset one visible space for 10 minutes before entertainment.",
     preferredBuilds: ["Monk", "Scholar", "Balanced"],
     tags: ["discipline", "focus", "lifestyle"],
   },
@@ -309,6 +311,202 @@ function pickStatReward(source: QuestSource): Partial<Stats> {
   if (source === "recovery") return { vitality: 2 };
   if (source === "discipline") return { discipline: 2 };
   return { focus: 1, discipline: 1 };
+}
+
+const penaltyAmountByStyle: Record<PenaltyStyle, number> = {
+  Light: 50,
+  Moderate: 150,
+  Strict: 500,
+};
+
+function getPenaltyIntensity(profile: UserProfile): PenaltyStyle {
+  return profile.penaltyStyle ?? "Moderate";
+}
+
+function createPenaltyAction(
+  input: Omit<PenaltyAction, "intensity">,
+  profile: UserProfile
+): PenaltyAction {
+  const intensity = getPenaltyIntensity(profile);
+
+  return {
+    ...input,
+    intensity,
+  };
+}
+
+function getPenaltyActionForQuest(
+  quest: Pick<
+    SpecialQuestTemplate,
+    "title" | "source" | "jobFocus" | "tags" | "penaltyAction"
+  >,
+  profile: UserProfile,
+  personalization?: OnboardingAnalysisResult
+): PenaltyAction {
+  if (quest.penaltyAction) {
+    const intensity = getPenaltyIntensity(profile);
+    const amountSek =
+      quest.penaltyAction.category === "financial"
+        ? Math.min(
+            quest.penaltyAction.amountSek ?? penaltyAmountByStyle[intensity],
+            intensity === "Strict" ? 1000 : intensity === "Moderate" ? 300 : 100
+          )
+        : undefined;
+
+    return {
+      category: quest.penaltyAction.category,
+      title: quest.penaltyAction.title,
+      description: quest.penaltyAction.description,
+      intensity,
+      completionCondition: quest.penaltyAction.completionCondition,
+      ...(amountSek ? { amountSek } : {}),
+    };
+  }
+
+  const source = quest.source ?? inferQuestSource(quest as SpecialQuestTemplate);
+  const mainJob = personalization?.mainJob.title || profile.profession || "Main Job";
+  const secondaryJob = personalization?.secondaryJob.title || "Secondary Job";
+  const savingsAmount = penaltyAmountByStyle[getPenaltyIntensity(profile)];
+  const wantsDiet =
+    quest.tags.includes("diet") || quest.tags.includes("nutrition");
+  const wantsWorkout =
+    quest.tags.includes("fitness") ||
+    quest.tags.includes("workout") ||
+    quest.tags.includes("mobility");
+
+  if (source === "main_job" || quest.jobFocus === "Main Job") {
+    return createPenaltyAction(
+      {
+        category: "main_job",
+        title: `${mainJob} Repair Block`,
+        description:
+          "Spend a focused block repairing the exact path this missed quest was meant to support.",
+        completionCondition:
+          "Complete 15 focused minutes and record one sentence of progress.",
+      },
+      profile
+    );
+  }
+
+  if (source === "secondary_job" || quest.jobFocus === "Secondary Job") {
+    return createPenaltyAction(
+      {
+        category: "secondary_job",
+        title: `${secondaryJob} Recovery Drill`,
+        description:
+          "Do a short practice round for the hobby identity instead of letting the missed quest disappear.",
+        completionCondition:
+          "Complete 15 minutes of practice or produce one small proof of work.",
+      },
+      profile
+    );
+  }
+
+  if (source === "hybrid" || quest.jobFocus === "Hybrid") {
+    return createPenaltyAction(
+      {
+        category: "reflection",
+        title: "After-Action Report",
+        description:
+          "Write down why the quest broke, then choose the smallest next action that would prevent the same miss.",
+        completionCondition:
+          "Write three bullet points and complete one 10-minute repair action.",
+      },
+      profile
+    );
+  }
+
+  if (source === "diet" || wantsDiet) {
+    return createPenaltyAction(
+      {
+        category: "nutrition",
+        title: "Nutrition Reset",
+        description:
+          "Prepare tomorrow's easiest healthy anchor so the next day starts with less friction.",
+        completionCondition:
+          "Prepare one protein, hydration, or simple meal choice before leisure.",
+      },
+      profile
+    );
+  }
+
+  if (source === "recovery" || quest.tags.includes("recovery")) {
+    return createPenaltyAction(
+      {
+        category: "recovery",
+        title: "Recovery Reset",
+        description:
+          "Repair the missed recovery signal with a small action that calms the system down.",
+        completionCondition:
+          "Complete 5 minutes of breathing, stretching, or sleep preparation.",
+      },
+      profile
+    );
+  }
+
+  if (source === "workout" || wantsWorkout) {
+    return createPenaltyAction(
+      {
+        category: "fitness",
+        title: "Movement Debt",
+        description:
+          "Pay back momentum with a short walk, mobility session, or low-intensity bodyweight block.",
+        completionCondition:
+          "Complete 15 minutes of safe movement before passive entertainment.",
+      },
+      profile
+    );
+  }
+
+  if (quest.tags.includes("reading") || quest.tags.includes("study")) {
+    return createPenaltyAction(
+      {
+        category: "learning",
+        title: "Knowledge Repair",
+        description:
+          "Do a smaller learning rep so the missed quest still produces useful progress.",
+        completionCondition:
+          "Read, study, or summarize one concept for 10 minutes.",
+      },
+      profile
+    );
+  }
+
+  if (profile.penaltyStyle === "Strict") {
+    return createPenaltyAction(
+      {
+        category: "financial",
+        title: "Savings Tribute",
+        description:
+          "Move money from impulse territory into future-you territory. This is a savings transfer, not a loss.",
+        completionCondition:
+          "Transfer the set amount to savings and log it in The System.",
+        amountSek: savingsAmount,
+      },
+      profile
+    );
+  }
+
+  return createPenaltyAction(
+    {
+      category: "environment",
+      title: "Environment Reset",
+      description:
+        "Clean one visible space so the missed quest turns into a lower-friction tomorrow.",
+      completionCondition:
+        "Reset one desk, bag, kitchen area, or training area for 10 minutes.",
+    },
+    profile
+  );
+}
+
+function formatPenaltyAction(action: PenaltyAction) {
+  const amountText =
+    action.category === "financial" && action.amountSek
+      ? ` Transfer ${action.amountSek} SEK to savings.`
+      : "";
+
+  return `${action.title}: ${action.description}${amountText} Completion: ${action.completionCondition}`;
 }
 
 function getFallbackJobFromProfile(profile: UserProfile): {
@@ -510,7 +708,7 @@ function createDynamicQuest(
     xp: input.xp,
     statRewards: pickStatReward(input.source),
     penalty:
-      "If ignored, remove one low-value distraction tomorrow until the corrective action is complete.",
+      "If ignored, complete a profile-relevant corrective action before leisure.",
     preferredBuilds: input.preferredBuilds ?? [
       "Balanced",
       "Warrior",
@@ -788,16 +986,34 @@ export function scaleXp(baseXp: number, difficulty: Difficulty) {
   return baseXp;
 }
 
-export function scalePenaltyText(basePenalty: string, difficulty: Difficulty) {
+export function scalePenaltyText(
+  basePenalty: string,
+  difficulty: Difficulty,
+  penaltyAction?: PenaltyAction
+) {
+  if (penaltyAction) {
+    const actionText = formatPenaltyAction(penaltyAction);
+
+    if (difficulty === "Easy") {
+      return `${actionText} Keep it light and finish it before leisure.`;
+    }
+
+    if (difficulty === "Hard") {
+      return `${actionText} Hard mode: finish it before the next comfort activity.`;
+    }
+
+    return `${actionText} Standard mode: finish it before entertainment.`;
+  }
+
   if (difficulty === "Easy") {
-    return `${basePenalty} Keep it light: complete a small corrective action before leisure.`;
+    return `${basePenalty} Keep it light: complete a useful corrective action before leisure.`;
   }
 
   if (difficulty === "Hard") {
-    return `${basePenalty} Hard mode: remove one convenience tomorrow until the corrective action is done.`;
+    return `${basePenalty} Hard mode: finish a meaningful repair action before the next comfort activity.`;
   }
 
-  return `${basePenalty} Standard penalty: finish the corrective action before entertainment.`;
+  return `${basePenalty} Standard mode: finish the corrective action before entertainment.`;
 }
 
 export function createDailyQuests(profile: UserProfile): Quest[] {
@@ -950,14 +1166,25 @@ export function createDailySpecialQuest(
   memory?: SpecialQuestMemory | null
 ): SpecialQuest {
   const poolToUse = filterQuestPoolForProfile(stats, profile, aiAnalysis);
+  const personalization = getPersonalization(aiAnalysis, profile);
 
   if (poolToUse.length === 0) {
     const fallback = specialQuestPool[0];
+    const fallbackPenaltyAction = getPenaltyActionForQuest(
+      fallback,
+      profile,
+      personalization
+    );
 
     return {
       ...fallback,
       xp: scaleXp(fallback.xp, profile.difficulty),
-      penalty: scalePenaltyText(fallback.penalty, profile.difficulty),
+      penalty: scalePenaltyText(
+        fallback.penalty,
+        profile.difficulty,
+        fallbackPenaltyAction
+      ),
+      penaltyAction: fallbackPenaltyAction,
       completed: false,
       awardedToday: false,
       assignedDate: dateString,
@@ -972,11 +1199,21 @@ export function createDailySpecialQuest(
     memory,
     dayNumber
   );
+  const penaltyAction = getPenaltyActionForQuest(
+    template,
+    profile,
+    personalization
+  );
 
   return {
     ...template,
     xp: scaleXp(template.xp, profile.difficulty),
-    penalty: scalePenaltyText(template.penalty, profile.difficulty),
+    penalty: scalePenaltyText(
+      template.penalty,
+      profile.difficulty,
+      penaltyAction
+    ),
+    penaltyAction,
     completed: false,
     awardedToday: false,
     assignedDate: dateString,
@@ -986,15 +1223,18 @@ export function createDailySpecialQuest(
 
 export function createSpecialQuestFromAiSuggestion(
   suggestion: AiSpecialQuestSuggestion,
-  dateString: string
+  dateString: string,
+  profile?: UserProfile,
+  aiAnalysis?: AiSystemAnalysis | null
 ): SpecialQuest {
-  return {
+  const template: SpecialQuestTemplate = {
     id: 5000 + Math.floor(Math.random() * 100000),
     title: suggestion.title,
     description: suggestion.description,
     xp: suggestion.xp,
     statRewards: suggestion.statRewards,
     penalty: suggestion.penalty,
+    penaltyAction: suggestion.penaltyAction,
     preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
     tags: suggestion.tags,
     source: suggestion.source,
@@ -1002,6 +1242,22 @@ export function createSpecialQuestFromAiSuggestion(
     durationMinutes: suggestion.durationMinutes,
     completionCondition: suggestion.completionCondition,
     interestCategories: suggestion.interestCategories,
+  };
+  const penaltyAction =
+    template.penaltyAction || !profile
+      ? template.penaltyAction
+      : getPenaltyActionForQuest(
+          template,
+          profile,
+          getPersonalization(aiAnalysis, profile)
+        );
+
+  return {
+    ...template,
+    penalty: penaltyAction
+      ? scalePenaltyText(template.penalty, profile?.difficulty ?? "Medium", penaltyAction)
+      : template.penalty,
+    penaltyAction,
     completed: false,
     awardedToday: false,
     assignedDate: dateString,
@@ -1042,6 +1298,7 @@ export function getNextAiQuestIndex(
       xp: quest.xp,
       statRewards: quest.statRewards,
       penalty: quest.penalty,
+      penaltyAction: quest.penaltyAction,
       preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
       tags: quest.tags,
       source: quest.source,
@@ -1104,6 +1361,7 @@ export function getPreviewSpecialQuests(
       xp: quest.xp,
       statRewards: quest.statRewards,
       penalty: quest.penalty,
+      penaltyAction: quest.penaltyAction,
       preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
       tags: quest.tags,
       source: quest.source,

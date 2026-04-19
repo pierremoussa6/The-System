@@ -538,7 +538,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const today = getTodayString();
       const firstAiQuest = getActiveAiQuest(analysis, 0);
       const nextSpecialQuest = firstAiQuest
-        ? createSpecialQuestFromAiSuggestion(firstAiQuest, today)
+        ? createSpecialQuestFromAiSuggestion(
+            firstAiQuest,
+            today,
+            current.profile,
+            analysis
+          )
         : current.specialQuest;
 
       let nextLog = current.log;
@@ -780,7 +785,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (nextAiQuest) {
           const nextSpecialQuest = createSpecialQuestFromAiSuggestion(
             nextAiQuest,
-            today
+            today,
+            current.profile,
+            current.aiAnalysis
           );
 
           return {

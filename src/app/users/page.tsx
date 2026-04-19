@@ -157,7 +157,12 @@ function createRandomSpecialQuest(record: UserRecord) {
 
     if (aiQuest) {
       return {
-        specialQuest: createSpecialQuestFromAiSuggestion(aiQuest, today),
+        specialQuest: createSpecialQuestFromAiSuggestion(
+          aiQuest,
+          today,
+          record.profile,
+          record.aiAnalysis
+        ),
         aiQuestIndex: nextIndex,
       };
     }

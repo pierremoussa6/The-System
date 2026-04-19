@@ -108,6 +108,29 @@ export default function QuestsPage() {
         <p className="text-sm text-zinc-400">
           Penalty: {specialQuest.penalty}
         </p>
+        {specialQuest.penaltyAction && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+            <p className="mb-1 text-sm text-red-300">
+              Corrective Action: {specialQuest.penaltyAction.title}
+            </p>
+            <p className="text-sm text-zinc-300">
+              {specialQuest.penaltyAction.completionCondition}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-red-200">
+                {specialQuest.penaltyAction.category.replace(/_/g, " ")}
+              </span>
+              <span className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-zinc-300">
+                {specialQuest.penaltyAction.intensity}
+              </span>
+              {specialQuest.penaltyAction.amountSek && (
+                <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-emerald-200">
+                  {specialQuest.penaltyAction.amountSek} SEK savings
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-2 text-xs">
           {specialQuest.jobFocus && specialQuest.jobFocus !== "None" && (

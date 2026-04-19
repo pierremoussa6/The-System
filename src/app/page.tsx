@@ -290,6 +290,15 @@ export default function HomePage() {
                     Penalty
                   </p>
                   <p className="mt-2 text-zinc-300">{specialQuest.penalty}</p>
+                  {specialQuest.penaltyAction && (
+                    <p className="mt-2 text-sm text-red-300">
+                      {specialQuest.penaltyAction.category.replace(/_/g, " ")} /{" "}
+                      {specialQuest.penaltyAction.intensity}
+                      {specialQuest.penaltyAction.amountSek
+                        ? ` / ${specialQuest.penaltyAction.amountSek} SEK savings`
+                        : ""}
+                    </p>
+                  )}
                 </div>
               </div>
 

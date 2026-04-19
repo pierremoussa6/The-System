@@ -63,6 +63,28 @@ export type StudyInterest =
 
 export type PenaltyStyle = "Light" | "Moderate" | "Strict";
 
+export type PenaltyCategory =
+  | "financial"
+  | "learning"
+  | "fitness"
+  | "nutrition"
+  | "recovery"
+  | "environment"
+  | "focus"
+  | "service"
+  | "main_job"
+  | "secondary_job"
+  | "reflection";
+
+export type PenaltyAction = {
+  category: PenaltyCategory;
+  title: string;
+  description: string;
+  intensity: PenaltyStyle;
+  completionCondition: string;
+  amountSek?: number;
+};
+
 export type MotivationStyle =
   | "Challenge"
   | "Discipline"
@@ -206,6 +228,7 @@ export type AiSpecialQuestSuggestion = {
   xp: number;
   statRewards: Partial<Stats>;
   penalty: string;
+  penaltyAction?: PenaltyAction;
   tags: string[];
   source?: QuestSource;
   jobFocus?: QuestJobFocus;
@@ -285,6 +308,7 @@ export type SpecialQuestTemplate = {
   xp: number;
   statRewards: Partial<Stats>;
   penalty: string;
+  penaltyAction?: PenaltyAction;
   preferredBuilds: BuildType[];
   tags: string[];
   minFitness?: FitnessLevel;
