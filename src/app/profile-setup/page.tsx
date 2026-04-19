@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../store";
 import type { AiSystemAnalysis, UserProfile } from "../types";
 import PanelCard from "../components/PanelCard";
@@ -22,6 +22,26 @@ function ProfileForm({
   const [step, setStep] = useState(1);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const formTopRef = useRef<HTMLDivElement | null>(null);
+  const didMountRef = useRef(false);
+
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+
+    const element = formTopRef.current;
+    if (!element) return;
+
+    const top =
+      element.getBoundingClientRect().top + window.scrollY - 84;
+
+    window.scrollTo({
+      top: Math.max(0, top),
+      behavior: "smooth",
+    });
+  }, [step]);
 
   function updateField<K extends keyof UserProfile>(
     key: K,
@@ -79,6 +99,8 @@ function ProfileForm({
 
   return (
     <div className="space-y-6">
+      <div ref={formTopRef} />
+
       <PanelCard className="border-cyan-500">
         <div className="flex flex-wrap gap-2">
           {[1, 2, 3, 4, 5].map((item) => (

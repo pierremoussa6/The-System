@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../auth-context";
 
 const navItems = [
@@ -71,6 +71,17 @@ export default function SidebarNav() {
   const { profile, status, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [mobileOpen]);
+
   async function handleSignOut() {
     await signOut();
     setMobileOpen(false);
@@ -104,35 +115,39 @@ export default function SidebarNav() {
             onClick={() => setMobileOpen(false)}
           />
 
-          <aside className="absolute left-0 top-0 flex h-full w-80 max-w-[85vw] flex-col border-r border-zinc-800 bg-zinc-950 p-5 shadow-2xl">
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <Link
-                href="/"
-                className="text-2xl font-bold tracking-wide text-blue-400 transition hover:text-blue-300"
-                onClick={() => setMobileOpen(false)}
-              >
-                The System
-              </Link>
+          <aside className="absolute left-0 top-0 flex h-dvh w-80 max-w-[85vw] flex-col overflow-y-auto overscroll-contain border-r border-zinc-800 bg-zinc-950 p-5 pb-8 shadow-2xl">
+            <div className="shrink-0">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <Link
+                  href="/"
+                  className="text-2xl font-bold tracking-wide text-blue-400 transition hover:text-blue-300"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  The System
+                </Link>
 
-              <button
-                type="button"
-                onClick={() => setMobileOpen(false)}
-                className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:border-red-400 hover:text-red-300"
-              >
-                Close
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:border-red-400 hover:text-red-300"
+                >
+                  Close
+                </button>
+              </div>
+
+              <p className="mb-5 text-sm text-zinc-400">
+                Enter the command interface.
+              </p>
             </div>
 
-            <p className="mb-5 text-sm text-zinc-400">
-              Enter the command interface.
-            </p>
-
-            <NavLinks pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+            <div className="min-h-0 flex-1">
+              <NavLinks pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+            </div>
 
             {status === "authenticated" && (
               <button
                 type="button"
-                className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-sm font-medium text-red-200 transition hover:border-red-400 hover:text-red-100"
+                className="mt-4 shrink-0 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-sm font-medium text-red-200 transition hover:border-red-400 hover:text-red-100"
                 onClick={handleSignOut}
               >
                 Sign Out
@@ -142,8 +157,8 @@ export default function SidebarNav() {
         </div>
       )}
 
-      <aside className="hidden min-h-screen w-72 shrink-0 border-r border-zinc-800 bg-zinc-950 px-5 py-6 md:block">
-        <div className="sticky top-6">
+      <aside className="hidden h-dvh w-72 shrink-0 overflow-y-auto border-r border-zinc-800 bg-zinc-950 px-5 py-6 md:sticky md:top-0 md:block">
+        <div>
           <Link
             href="/"
             className="block rounded-2xl border border-blue-500/30 bg-blue-500/10 px-4 py-4 text-2xl font-bold tracking-wide text-blue-400 transition hover:border-blue-400 hover:text-blue-300"
