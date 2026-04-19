@@ -115,8 +115,8 @@ export default function SidebarNav() {
             onClick={() => setMobileOpen(false)}
           />
 
-          <aside className="absolute left-0 top-0 flex h-dvh w-80 max-w-[85vw] flex-col overflow-y-auto overscroll-contain border-r border-zinc-800 bg-zinc-950 p-5 pb-8 shadow-2xl">
-            <div className="shrink-0">
+          <aside className="absolute left-0 top-0 flex h-dvh w-80 max-w-[85vw] flex-col overflow-hidden border-r border-zinc-800 bg-zinc-950 shadow-2xl">
+            <div className="shrink-0 px-5 pt-5">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <Link
                   href="/"
@@ -140,25 +140,30 @@ export default function SidebarNav() {
               </p>
             </div>
 
-            <div className="min-h-0 flex-1">
-              <NavLinks pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4">
+              <NavLinks
+                pathname={pathname}
+                onNavigate={() => setMobileOpen(false)}
+              />
             </div>
 
             {status === "authenticated" && (
-              <button
-                type="button"
-                className="mt-4 shrink-0 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-sm font-medium text-red-200 transition hover:border-red-400 hover:text-red-100"
-                onClick={handleSignOut}
-              >
-                Sign Out
-              </button>
+              <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-5 py-4">
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-sm font-medium text-red-200 transition hover:border-red-400 hover:text-red-100"
+                  onClick={handleSignOut}
+                >
+                  Sign Out
+                </button>
+              </div>
             )}
           </aside>
         </div>
       )}
 
-      <aside className="hidden h-dvh w-72 shrink-0 overflow-y-auto border-r border-zinc-800 bg-zinc-950 px-5 py-6 md:sticky md:top-0 md:block">
-        <div>
+      <aside className="hidden h-dvh w-72 shrink-0 flex-col overflow-hidden border-r border-zinc-800 bg-zinc-950 md:sticky md:top-0 md:flex">
+        <div className="shrink-0 px-5 pt-6">
           <Link
             href="/"
             className="block rounded-2xl border border-blue-500/30 bg-blue-500/10 px-4 py-4 text-2xl font-bold tracking-wide text-blue-400 transition hover:border-blue-400 hover:text-blue-300"
@@ -180,19 +185,23 @@ export default function SidebarNav() {
               </p>
             </div>
           )}
+        </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4">
           <NavLinks pathname={pathname} />
+        </div>
 
-          {status === "authenticated" && (
+        {status === "authenticated" && (
+          <div className="shrink-0 border-t border-zinc-800 px-5 py-4">
             <button
               type="button"
-              className="mt-4 w-full rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-sm font-medium text-red-200 transition hover:border-red-400 hover:text-red-100"
+              className="w-full rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-sm font-medium text-red-200 transition hover:border-red-400 hover:text-red-100"
               onClick={handleSignOut}
             >
               Sign Out
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </aside>
     </>
   );
