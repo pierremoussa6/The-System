@@ -121,6 +121,21 @@ function ProfileForm({
             </div>
 
             <div>
+              <label className="mb-2 block text-zinc-400">
+                Real-Life Profession or Role
+              </label>
+              <input
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.profession}
+                onChange={(e) => updateField("profession", e.target.value)}
+                placeholder="Engineer, student, developer, nurse, founder..."
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                This becomes your Main Job path.
+              </p>
+            </div>
+
+            <div>
               <label className="mb-2 block text-zinc-400">Age Range</label>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
@@ -365,10 +380,50 @@ function ProfileForm({
               >
                 <option value="None">None</option>
                 <option value="Programming">Programming</option>
+                <option value="Engineering">Engineering</option>
                 <option value="Reading">Reading</option>
                 <option value="Chess">Chess</option>
                 <option value="Language">Language</option>
+                <option value="Business">Business</option>
+                <option value="Design">Design</option>
+                <option value="Fitness">Fitness</option>
+                <option value="Creativity">Creativity</option>
+                <option value="Strategy">Strategy</option>
+                <option value="Craftsmanship">Craftsmanship</option>
+                <option value="Music">Music</option>
+                <option value="Research">Research</option>
+                <option value="Problem Solving">Problem Solving</option>
+                <option value="Technical Building">Technical Building</option>
+                <option value="Adventure / Stealth">Adventure / Stealth</option>
+                <option value="Discipline / Habits">Discipline / Habits</option>
               </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-zinc-400">
+                Hobbies and Side Interests
+              </label>
+              <textarea
+                className="min-h-24 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.hobbies}
+                onChange={(e) => updateField("hobbies", e.target.value)}
+                placeholder="Lock picking, guitar, hiking, drawing, coding, chess..."
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                This guides your Secondary Job.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-zinc-400">
+                Extra Study or Self-Development Interests
+              </label>
+              <textarea
+                className="min-h-24 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.customInterests}
+                onChange={(e) => updateField("customInterests", e.target.value)}
+                placeholder="Programming, languages, business, research, problem solving..."
+              />
             </div>
 
             <div>

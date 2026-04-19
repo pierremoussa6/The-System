@@ -46,6 +46,19 @@ export type StudyInterest =
   | "Reading"
   | "Chess"
   | "Language"
+  | "Engineering"
+  | "Business"
+  | "Design"
+  | "Fitness"
+  | "Creativity"
+  | "Strategy"
+  | "Craftsmanship"
+  | "Music"
+  | "Research"
+  | "Problem Solving"
+  | "Technical Building"
+  | "Adventure / Stealth"
+  | "Discipline / Habits"
   | "None";
 
 export type PenaltyStyle = "Light" | "Moderate" | "Strict";
@@ -95,6 +108,90 @@ export type ActiveEffects = {
   doubleDailyXpDate: string | null;
 };
 
+export type InterestCategory =
+  | "engineering"
+  | "programming"
+  | "language_learning"
+  | "business"
+  | "design"
+  | "fitness"
+  | "creativity"
+  | "strategy"
+  | "craftsmanship"
+  | "music"
+  | "research"
+  | "problem_solving"
+  | "technical_building"
+  | "adventure_stealth"
+  | "discipline_habit_building"
+  | "reading"
+  | "chess"
+  | "nutrition"
+  | "outdoors"
+  | "other";
+
+export type QuestSource =
+  | "main_job"
+  | "secondary_job"
+  | "interest"
+  | "workout"
+  | "diet"
+  | "recovery"
+  | "discipline"
+  | "hybrid";
+
+export type QuestJobFocus = "Main Job" | "Secondary Job" | "Hybrid" | "None";
+
+export type JobProfile = {
+  title: string;
+  archetype: string;
+  rationale: string;
+  questThemes: string[];
+  realLifeAnchor: string;
+};
+
+export type WorkoutRecommendationProfile = {
+  primaryType: string;
+  intensity: "Low" | "Moderate" | "High";
+  weeklyFrequency: string;
+  sessionLengthMinutes: number;
+  lowEnergyFallback: string;
+  progressionRule: string;
+};
+
+export type DietRecommendationProfile = {
+  style: string;
+  priorities: string[];
+  baselineRule: string;
+  easyFallback: string;
+  constraints: string[];
+};
+
+export type QuestPreferenceProfile = {
+  preferredQuestTypes: string[];
+  avoidedQuestTypes: string[];
+  durationMinutes: number;
+  difficultyNotes: string;
+  rotationRule: string;
+};
+
+export type OnboardingAnalysisResult = {
+  primaryGoals: string[];
+  explicitInterests: string[];
+  inferredInterests: string[];
+  interestCategories: InterestCategory[];
+  profession: string;
+  hobbies: string[];
+  mainJob: JobProfile;
+  secondaryJob: JobProfile;
+  possibleSecondaryJobThemes: string[];
+  workoutRecommendation: WorkoutRecommendationProfile;
+  dietRecommendation: DietRecommendationProfile;
+  questPreferences: QuestPreferenceProfile;
+  motivationalStyle: string;
+  lifestyleNotes: string[];
+};
+
 export type AiSpecialQuestSuggestion = {
   title: string;
   description: string;
@@ -102,6 +199,11 @@ export type AiSpecialQuestSuggestion = {
   statRewards: Partial<Stats>;
   penalty: string;
   tags: string[];
+  source?: QuestSource;
+  jobFocus?: QuestJobFocus;
+  durationMinutes?: number;
+  completionCondition?: string;
+  interestCategories?: InterestCategory[];
 };
 
 export type AiWeeklyMission = {
@@ -128,6 +230,7 @@ export type AiSystemAnalysis = {
   dietDirection: string;
   workoutDirection: string;
   weeklyStrategy: string;
+  personalization?: OnboardingAnalysisResult;
   specialQuests: AiSpecialQuestSuggestion[];
 };
 
@@ -141,6 +244,9 @@ export type UserProfile = {
   mainImprovementArea: MainImprovementArea;
   studyInterest: StudyInterest;
   penaltyStyle: PenaltyStyle;
+  profession: string;
+  hobbies: string;
+  customInterests: string;
 
   ageRange: "Under 18" | "18-24" | "25-34" | "35-44" | "45+";
   motivationStyle: MotivationStyle;
@@ -170,6 +276,11 @@ export type SpecialQuestTemplate = {
   preferredBuilds: BuildType[];
   tags: string[];
   minFitness?: FitnessLevel;
+  source?: QuestSource;
+  jobFocus?: QuestJobFocus;
+  durationMinutes?: number;
+  completionCondition?: string;
+  interestCategories?: InterestCategory[];
 };
 
 export type SpecialQuestStatus =

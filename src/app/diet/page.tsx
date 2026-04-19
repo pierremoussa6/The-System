@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useApp } from "../store";
+import { getPersonalization } from "../quest-engine";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import ActionButton from "../components/ActionButton";
@@ -49,6 +50,10 @@ export default function DietPage() {
       </div>
     );
   }
+
+  const personalization = aiAnalysis
+    ? getPersonalization(aiAnalysis, profile)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -148,6 +153,23 @@ export default function DietPage() {
 
         {aiAnalysis ? (
           <div className="space-y-3">
+            {personalization && (
+              <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+                <p className="mb-1 text-sm text-zinc-400">
+                  Diet Recommendation Profile
+                </p>
+                <p className="text-zinc-200">
+                  {personalization.dietRecommendation.baselineRule}
+                </p>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Priorities: {personalization.dietRecommendation.priorities.join(", ")}
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Fallback: {personalization.dietRecommendation.easyFallback}
+                </p>
+              </div>
+            )}
+
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Diet Direction</p>
               <p className="text-zinc-200">{aiAnalysis.dietDirection}</p>

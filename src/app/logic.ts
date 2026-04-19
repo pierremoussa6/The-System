@@ -53,6 +53,14 @@ export function explainSpecialQuestChoice(profile: UserProfile) {
     reasons.push(`study interest is ${profile.studyInterest}`);
   }
 
+  if (profile.profession) {
+    reasons.push(`Main Job path is anchored to ${profile.profession}`);
+  }
+
+  if (profile.hobbies) {
+    reasons.push("Secondary Job path is influenced by your hobbies");
+  }
+
   if (profile.sleepQuality === "Poor") {
     reasons.push("sleep quality is poor, so recovery is prioritized");
   }

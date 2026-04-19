@@ -15,6 +15,7 @@ import {
   getRankProgress,
   getSystemRank,
 } from "../rank-system";
+import { getPersonalization, interestCategoryLabels } from "../quest-engine";
 import {
   getAchievementSummary,
   getAchievementTierClasses,
@@ -135,6 +136,13 @@ export default function DashboardPage() {
 
   const aiQuestCount = aiAnalysis?.specialQuests?.length ?? 0;
   const displayedAiQuestIndex = aiQuestCount > 0 ? aiQuestIndex + 1 : 0;
+  const personalization = aiAnalysis
+    ? getPersonalization(aiAnalysis, profile)
+    : null;
+  const interestLabels =
+    personalization?.interestCategories
+      .map((category) => interestCategoryLabels[category])
+      .join(", ") || "No categories inferred yet";
 
   return (
     <div className="space-y-6">
@@ -197,6 +205,37 @@ export default function DashboardPage() {
                 Active AI Quest: {displayedAiQuestIndex}/{aiQuestCount || 0}
               </p>
             </div>
+
+            {personalization && (
+              <>
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+                  <p className="mb-1 text-sm text-zinc-400">Main Job</p>
+                  <p className="text-lg text-white">
+                    {personalization.mainJob.title}
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    {personalization.mainJob.rationale}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+                  <p className="mb-1 text-sm text-zinc-400">Secondary Job</p>
+                  <p className="text-lg text-white">
+                    {personalization.secondaryJob.title}
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    {personalization.secondaryJob.rationale}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4 md:col-span-2">
+                  <p className="mb-1 text-sm text-zinc-400">
+                    Interest Categories
+                  </p>
+                  <p className="text-zinc-200">{interestLabels}</p>
+                </div>
+              </>
+            )}
 
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Workout Direction</p>
@@ -419,6 +458,20 @@ export default function DashboardPage() {
             <span className="text-white">{profile.goal || "No goal set"}</span>
           </p>
           <p>
+            <span className="text-zinc-400">Profession:</span>{" "}
+            <span className="text-white">
+              {profile.profession || personalization?.profession || "Not set"}
+            </span>
+          </p>
+          <p>
+            <span className="text-zinc-400">Hobbies:</span>{" "}
+            <span className="text-white">
+              {profile.hobbies ||
+                personalization?.hobbies.join(", ") ||
+                "Not set"}
+            </span>
+          </p>
+          <p>
             <span className="text-zinc-400">Difficulty:</span>{" "}
             <span className="text-white">{profile.difficulty}</span>
           </p>
@@ -461,6 +514,28 @@ export default function DashboardPage() {
         <p className="text-zinc-300">{specialQuest.description}</p>
         <p className="text-sm text-zinc-400">Reward: +{specialQuest.xp} XP</p>
         <p className="text-sm text-zinc-400">Penalty: {specialQuest.penalty}</p>
+        <div className="flex flex-wrap gap-2 text-xs">
+          {specialQuest.jobFocus && specialQuest.jobFocus !== "None" && (
+            <span className="rounded border border-purple-500/40 bg-purple-500/10 px-2 py-1 text-purple-200">
+              {specialQuest.jobFocus}
+            </span>
+          )}
+          {specialQuest.source && (
+            <span className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-sky-200">
+              {specialQuest.source.replace("_", " ")}
+            </span>
+          )}
+          {specialQuest.durationMinutes && (
+            <span className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-zinc-300">
+              {specialQuest.durationMinutes} min
+            </span>
+          )}
+        </div>
+        {specialQuest.completionCondition && (
+          <p className="text-sm text-zinc-400">
+            Completion: {specialQuest.completionCondition}
+          </p>
+        )}
 
         <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
           <p className="mb-1 text-sm text-zinc-400">Why this quest was chosen</p>
@@ -527,7 +602,9 @@ export default function DashboardPage() {
                 <p className="font-medium text-white">{quest.title}</p>
                 {aiAnalysis && (
                   <span className="rounded-full border border-sky-500/50 bg-sky-500/10 px-2 py-1 text-xs text-sky-300">
-                    AI Quest {index + 1}
+                    {quest.jobFocus && quest.jobFocus !== "None"
+                      ? quest.jobFocus
+                      : `AI Quest ${index + 1}`}
                   </span>
                 )}
               </div>

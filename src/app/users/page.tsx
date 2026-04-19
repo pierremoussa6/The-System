@@ -143,7 +143,15 @@ function createRandomSpecialQuest(record: UserRecord) {
   const today = getTodayString();
 
   if (record.aiAnalysis?.specialQuests?.length) {
-    const nextIndex = getNextAiQuestIndex(record.aiAnalysis, record.aiQuestIndex);
+    const recentTitles = [
+      record.specialQuest.title,
+      ...record.log.slice(0, 8).map((entry) => entry.title),
+    ];
+    const nextIndex = getNextAiQuestIndex(
+      record.aiAnalysis,
+      record.aiQuestIndex,
+      recentTitles
+    );
     const aiQuest = getActiveAiQuest(record.aiAnalysis, nextIndex);
 
     if (aiQuest) {
@@ -154,7 +162,11 @@ function createRandomSpecialQuest(record: UserRecord) {
     }
   }
 
-  const pool = filterQuestPoolForProfile(record.stats, record.profile);
+  const pool = filterQuestPoolForProfile(
+    record.stats,
+    record.profile,
+    record.aiAnalysis
+  );
   const template = pool[Math.floor(Math.random() * pool.length)];
 
   return {
@@ -415,7 +427,8 @@ export default function UsersPage() {
       specialQuest: createDailySpecialQuest(
         getTodayString(),
         appState.stats,
-        appState.profile
+        appState.profile,
+        appState.aiAnalysis
       ),
       lastResetDate: getTodayString(),
     };

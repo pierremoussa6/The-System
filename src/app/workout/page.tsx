@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useApp } from "../store";
+import { getPersonalization } from "../quest-engine";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
@@ -51,6 +52,10 @@ export default function WorkoutPage() {
       </div>
     );
   }
+
+  const personalization = aiAnalysis
+    ? getPersonalization(aiAnalysis, profile)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -129,6 +134,25 @@ export default function WorkoutPage() {
 
         {aiAnalysis ? (
           <div className="space-y-3">
+            {personalization && (
+              <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+                <p className="mb-1 text-sm text-zinc-400">
+                  Workout Recommendation Profile
+                </p>
+                <p className="text-zinc-200">
+                  {personalization.workoutRecommendation.primaryType} at{" "}
+                  {personalization.workoutRecommendation.intensity.toLowerCase()}{" "}
+                  intensity, {personalization.workoutRecommendation.weeklyFrequency}.
+                </p>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Fallback: {personalization.workoutRecommendation.lowEnergyFallback}
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Progression: {personalization.workoutRecommendation.progressionRule}
+                </p>
+              </div>
+            )}
+
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Workout Direction</p>
               <p className="text-zinc-200">{aiAnalysis.workoutDirection}</p>

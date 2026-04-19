@@ -101,6 +101,9 @@ Rules:
 - Each mission should be realistic for the user's time and energy.
 - Missions should be spread across the week and feel like progression, not random tasks.
 - Include flexible alternatives inside mission descriptions when useful, such as gym/home swaps, low-energy versions, or dietary fallback choices.
+- Use personalization.mainJob and personalization.secondaryJob when present.
+- Include at least one mission that supports the Main Job path and at least one mission that supports the Secondary Job path.
+- Training and nutrition focus should respect workoutRecommendation and dietRecommendation when present.
 - Do not repeat the same structure every day. Mix training, diet, recovery, discipline, and focus work based on the profile.
 - Make the plan useful on a phone at the gym: concrete, short enough to act on, and clear about what to do today.
 `;

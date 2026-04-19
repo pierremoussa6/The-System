@@ -513,7 +513,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         specialQuest: createDailySpecialQuest(
           getTodayString(),
           current.stats,
-          safeProfile
+          safeProfile,
+          current.aiAnalysis
         ),
         log: nextLog,
       };
@@ -533,7 +534,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         nextLog = appendLog(nextLog, {
           type: "system_analysis",
           title: "System Diagnosis Complete",
-          details: `Archetype: ${analysis.archetype}. Focus: ${analysis.primaryFocus}. Tone: ${analysis.recommendedSystemTone}.`,
+          details:
+            `Archetype: ${analysis.archetype}. Focus: ${analysis.primaryFocus}. ` +
+            `Main Job: ${analysis.personalization?.mainJob.title ?? "Unknown"}. ` +
+            `Secondary Job: ${analysis.personalization?.secondaryJob.title ?? "Unknown"}.`,
         });
 
         if (firstAiQuest) {
@@ -746,7 +750,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const today = getTodayString();
 
       if (current.aiAnalysis?.specialQuests?.length) {
-        const nextIndex = getNextAiQuestIndex(current.aiAnalysis, current.aiQuestIndex);
+        const recentTitles = [
+          current.specialQuest.title,
+          ...current.log.slice(0, 8).map((entry) => entry.title),
+        ];
+        const nextIndex = getNextAiQuestIndex(
+          current.aiAnalysis,
+          current.aiQuestIndex,
+          recentTitles
+        );
         const nextAiQuest = getActiveAiQuest(current.aiAnalysis, nextIndex);
 
         if (nextAiQuest) {
@@ -763,7 +775,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const pool = filterQuestPoolForProfile(current.stats, current.profile);
+      const pool = filterQuestPoolForProfile(
+        current.stats,
+        current.profile,
+        current.aiAnalysis
+      );
 
       if (pool.length === 0) {
         return current;

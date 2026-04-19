@@ -14,6 +14,11 @@ type OnboardingFormProps = {
 function OnboardingForm({ initialProfile, onSave }: OnboardingFormProps) {
   const [name, setName] = useState(initialProfile.name);
   const [goal, setGoal] = useState(initialProfile.goal);
+  const [profession, setProfession] = useState(initialProfile.profession);
+  const [hobbies, setHobbies] = useState(initialProfile.hobbies);
+  const [customInterests, setCustomInterests] = useState(
+    initialProfile.customInterests
+  );
   const [preferredBuild, setPreferredBuild] = useState(
     initialProfile.preferredBuild
   );
@@ -36,6 +41,9 @@ function OnboardingForm({ initialProfile, onSave }: OnboardingFormProps) {
       ...initialProfile,
       name,
       goal,
+      profession,
+      hobbies,
+      customInterests,
       preferredBuild,
       difficulty,
       fitnessLevel,
@@ -66,6 +74,18 @@ function OnboardingForm({ initialProfile, onSave }: OnboardingFormProps) {
             className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="block text-zinc-400 mb-2">
+            Real-Life Profession or Role
+          </label>
+          <input
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white"
+            value={profession}
+            onChange={(e) => setProfession(e.target.value)}
+            placeholder="Engineer, student, developer..."
           />
         </div>
 
@@ -176,16 +196,66 @@ function OnboardingForm({ initialProfile, onSave }: OnboardingFormProps) {
                   | "Reading"
                   | "Chess"
                   | "Language"
+                  | "Engineering"
+                  | "Business"
+                  | "Design"
+                  | "Fitness"
+                  | "Creativity"
+                  | "Strategy"
+                  | "Craftsmanship"
+                  | "Music"
+                  | "Research"
+                  | "Problem Solving"
+                  | "Technical Building"
+                  | "Adventure / Stealth"
+                  | "Discipline / Habits"
                   | "None"
               )
             }
           >
             <option value="None">None</option>
             <option value="Programming">Programming</option>
+            <option value="Engineering">Engineering</option>
             <option value="Reading">Reading</option>
             <option value="Chess">Chess</option>
             <option value="Language">Language</option>
+            <option value="Business">Business</option>
+            <option value="Design">Design</option>
+            <option value="Fitness">Fitness</option>
+            <option value="Creativity">Creativity</option>
+            <option value="Strategy">Strategy</option>
+            <option value="Craftsmanship">Craftsmanship</option>
+            <option value="Music">Music</option>
+            <option value="Research">Research</option>
+            <option value="Problem Solving">Problem Solving</option>
+            <option value="Technical Building">Technical Building</option>
+            <option value="Adventure / Stealth">Adventure / Stealth</option>
+            <option value="Discipline / Habits">Discipline / Habits</option>
           </select>
+        </div>
+
+        <div>
+          <label className="block text-zinc-400 mb-2">
+            Hobbies and Side Interests
+          </label>
+          <textarea
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white"
+            value={hobbies}
+            onChange={(e) => setHobbies(e.target.value)}
+            placeholder="Lock picking, guitar, hiking, drawing..."
+          />
+        </div>
+
+        <div>
+          <label className="block text-zinc-400 mb-2">
+            Extra Study or Self-Development Interests
+          </label>
+          <textarea
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white"
+            value={customInterests}
+            onChange={(e) => setCustomInterests(e.target.value)}
+            placeholder="Programming, business, research, problem solving..."
+          />
         </div>
 
         <div>

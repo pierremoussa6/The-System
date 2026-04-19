@@ -109,6 +109,30 @@ export default function QuestsPage() {
           Penalty: {specialQuest.penalty}
         </p>
 
+        <div className="flex flex-wrap gap-2 text-xs">
+          {specialQuest.jobFocus && specialQuest.jobFocus !== "None" && (
+            <span className="rounded border border-purple-500/40 bg-purple-500/10 px-2 py-1 text-purple-200">
+              {specialQuest.jobFocus}
+            </span>
+          )}
+          {specialQuest.source && (
+            <span className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-sky-200">
+              {specialQuest.source.replace("_", " ")}
+            </span>
+          )}
+          {specialQuest.durationMinutes && (
+            <span className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-zinc-300">
+              {specialQuest.durationMinutes} min
+            </span>
+          )}
+        </div>
+
+        {specialQuest.completionCondition && (
+          <p className="text-sm text-zinc-400">
+            Completion: {specialQuest.completionCondition}
+          </p>
+        )}
+
         <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
           <p className="text-sm text-zinc-400 mb-1">Quest State</p>
           <p className="text-zinc-200 capitalize">{specialQuest.status}</p>

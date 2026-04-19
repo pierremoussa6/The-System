@@ -9,6 +9,7 @@ import {
   getDominantStat,
   getStatTotal,
 } from "./logic";
+import { getPersonalization } from "./quest-engine";
 import { getSystemRank, getRankLabel } from "./rank-system";
 import {
   getAchievementSummary,
@@ -97,6 +98,7 @@ export default function HomePage() {
     : aiAnalysis
     ? aiAnalysis.playerSummary
     : "No system analysis has been generated yet.";
+  const personalization = aiAnalysis ? getPersonalization(aiAnalysis, profile) : null;
 
   return (
     <main className="space-y-6">
@@ -147,6 +149,24 @@ export default function HomePage() {
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-white">
                   {rank} · {rankLabel}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+                <p className="text-sm uppercase tracking-wide text-zinc-400">
+                  Main Job
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {personalization?.mainJob.title || profile.profession || "Unset"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+                <p className="text-sm uppercase tracking-wide text-zinc-400">
+                  Secondary Job
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {personalization?.secondaryJob.title || "Adventurer"}
                 </p>
               </div>
 

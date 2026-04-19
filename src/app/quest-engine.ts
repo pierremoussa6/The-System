@@ -6,8 +6,12 @@ import type {
   Difficulty,
   FitnessLevel,
   HistoryEntry,
+  InterestCategory,
+  OnboardingAnalysisResult,
   LogEntry,
   PenaltyNotice,
+  QuestJobFocus,
+  QuestSource,
   Quest,
   SpecialQuest,
   SpecialQuestTemplate,
@@ -34,6 +38,9 @@ export const defaultProfile: UserProfile = {
   mainImprovementArea: "Balanced",
   studyInterest: "None",
   penaltyStyle: "Moderate",
+  profession: "",
+  hobbies: "",
+  customInterests: "",
 
   ageRange: "25-34",
   motivationStyle: "Balance",
@@ -218,6 +225,340 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
   },
 ];
 
+export const interestCategoryLabels: Record<InterestCategory, string> = {
+  engineering: "Engineering",
+  programming: "Programming",
+  language_learning: "Language Learning",
+  business: "Business",
+  design: "Design",
+  fitness: "Fitness",
+  creativity: "Creativity",
+  strategy: "Strategy",
+  craftsmanship: "Craftsmanship",
+  music: "Music",
+  research: "Research",
+  problem_solving: "Problem Solving",
+  technical_building: "Technical Building",
+  adventure_stealth: "Adventure / Stealth",
+  discipline_habit_building: "Discipline / Habits",
+  reading: "Reading",
+  chess: "Chess",
+  nutrition: "Nutrition",
+  outdoors: "Outdoors",
+  other: "Other",
+};
+
+const studyInterestToCategory: Partial<
+  Record<UserProfile["studyInterest"], InterestCategory>
+> = {
+  Programming: "programming",
+  Reading: "reading",
+  Chess: "chess",
+  Language: "language_learning",
+  Engineering: "engineering",
+  Business: "business",
+  Design: "design",
+  Fitness: "fitness",
+  Creativity: "creativity",
+  Strategy: "strategy",
+  Craftsmanship: "craftsmanship",
+  Music: "music",
+  Research: "research",
+  "Problem Solving": "problem_solving",
+  "Technical Building": "technical_building",
+  "Adventure / Stealth": "adventure_stealth",
+  "Discipline / Habits": "discipline_habit_building",
+};
+
+function splitListText(value: string) {
+  return value
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function asPositiveMinutes(value: number, fallback: number) {
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.round(Math.max(5, Math.min(120, value)));
+}
+
+function pickStatReward(source: QuestSource): Partial<Stats> {
+  if (source === "main_job") return { focus: 2, discipline: 1 };
+  if (source === "secondary_job") return { focus: 1, discipline: 1 };
+  if (source === "workout") return { strength: 1, vitality: 1 };
+  if (source === "diet") return { vitality: 1, discipline: 1 };
+  if (source === "recovery") return { vitality: 2 };
+  if (source === "discipline") return { discipline: 2 };
+  return { focus: 1, discipline: 1 };
+}
+
+function getFallbackJobFromProfile(profile: UserProfile): {
+  mainJobTitle: string;
+  secondaryJobTitle: string;
+  secondaryArchetype: string;
+} {
+  const profession = profile.profession.trim();
+  const hobbies = `${profile.hobbies} ${profile.customInterests} ${profile.studyInterest}`.toLowerCase();
+
+  let secondaryJobTitle = "Adventurer";
+  let secondaryArchetype = "Versatile side-identity";
+
+  if (hobbies.includes("program") || hobbies.includes("code")) {
+    secondaryJobTitle = "Hacker";
+    secondaryArchetype = "Technical infiltrator";
+  } else if (hobbies.includes("lock") || hobbies.includes("stealth")) {
+    secondaryJobTitle = "Thief";
+    secondaryArchetype = "Stealth specialist";
+  } else if (hobbies.includes("gym") || hobbies.includes("fitness")) {
+    secondaryJobTitle = "Warrior";
+    secondaryArchetype = "Physical challenger";
+  } else if (hobbies.includes("draw") || hobbies.includes("design")) {
+    secondaryJobTitle = "Artist";
+    secondaryArchetype = "Creative maker";
+  } else if (hobbies.includes("music") || hobbies.includes("instrument")) {
+    secondaryJobTitle = "Bard";
+    secondaryArchetype = "Rhythm and expression specialist";
+  } else if (hobbies.includes("research") || hobbies.includes("read")) {
+    secondaryJobTitle = "Scholar";
+    secondaryArchetype = "Knowledge seeker";
+  } else if (hobbies.includes("business") || hobbies.includes("entrepreneur")) {
+    secondaryJobTitle = "Merchant";
+    secondaryArchetype = "Opportunity hunter";
+  } else if (hobbies.includes("hiking") || hobbies.includes("outdoor")) {
+    secondaryJobTitle = "Ranger";
+    secondaryArchetype = "Outdoor scout";
+  }
+
+  return {
+    mainJobTitle: profession || "Self-Improver",
+    secondaryJobTitle,
+    secondaryArchetype,
+  };
+}
+
+export function getPersonalization(
+  aiAnalysis: AiSystemAnalysis | null | undefined,
+  profile: UserProfile
+): OnboardingAnalysisResult {
+  if (aiAnalysis?.personalization) {
+    return aiAnalysis.personalization;
+  }
+
+  const categories: InterestCategory[] = [];
+  const mappedStudyInterest = studyInterestToCategory[profile.studyInterest];
+
+  if (mappedStudyInterest) {
+    categories.push(mappedStudyInterest);
+  }
+
+  if (profile.wantsWorkoutPlan) categories.push("fitness");
+  if (profile.wantsDietSupport) categories.push("nutrition");
+  if (profile.mainImprovementArea === "Discipline") {
+    categories.push("discipline_habit_building");
+  }
+
+  const fallbackJob = getFallbackJobFromProfile(profile);
+  const weekdayMinutes = asPositiveMinutes(profile.availableMinutesWeekday, 25);
+  const hobbies = splitListText(profile.hobbies);
+  const interests = splitListText(profile.customInterests);
+
+  return {
+    primaryGoals: [profile.goal || "Build a stronger daily system"],
+    explicitInterests: [
+      profile.studyInterest !== "None" ? profile.studyInterest : "",
+      ...interests,
+    ].filter(Boolean),
+    inferredInterests: categories.map((category) => interestCategoryLabels[category]),
+    interestCategories: Array.from(new Set(categories)).slice(0, 8),
+    profession: profile.profession || fallbackJob.mainJobTitle,
+    hobbies,
+    mainJob: {
+      title: fallbackJob.mainJobTitle,
+      archetype: "Real-life role",
+      rationale:
+        "Fallback role based on the profession entered in profile setup.",
+      questThemes: ["skill practice", "focused work", "professional growth"],
+      realLifeAnchor: profile.profession || "current responsibilities",
+    },
+    secondaryJob: {
+      title: fallbackJob.secondaryJobTitle,
+      archetype: fallbackJob.secondaryArchetype,
+      rationale:
+        "Fallback side identity inferred from hobbies, study interest, and custom interests.",
+      questThemes: hobbies.length > 0 ? hobbies : ["practice", "craft", "exploration"],
+      realLifeAnchor: hobbies[0] ?? profile.studyInterest,
+    },
+    possibleSecondaryJobThemes: hobbies.length > 0 ? hobbies : interests,
+    workoutRecommendation: {
+      primaryType: profile.workoutPreference,
+      intensity:
+        profile.difficulty === "Hard"
+          ? "High"
+          : profile.difficulty === "Easy"
+          ? "Low"
+          : "Moderate",
+      weeklyFrequency: profile.wantsWorkoutPlan ? "3-4 sessions" : "Optional",
+      sessionLengthMinutes: weekdayMinutes,
+      lowEnergyFallback: "Take a 10-minute walk or do light mobility.",
+      progressionRule: "Add a small amount of time, load, or consistency each week.",
+    },
+    dietRecommendation: {
+      style: profile.dietStyle,
+      priorities: profile.wantsDietSupport
+        ? ["protein anchor", "hydration", "simple repeatable meals"]
+        : ["keep food choices steady"],
+      baselineRule: "Build one daily meal around protein, plants, and water.",
+      easyFallback: "Choose the best available meal instead of aiming for perfect.",
+      constraints: profile.dietaryRestrictions
+        ? [profile.dietaryRestrictions]
+        : ["No constraints specified"],
+    },
+    questPreferences: {
+      preferredQuestTypes: [
+        profile.wantsStudyQuests ? "study" : "",
+        profile.wantsWorkoutPlan ? "workout" : "",
+        profile.wantsDietSupport ? "diet" : "",
+        profile.wantsLifestyleQuests ? "lifestyle" : "",
+      ].filter(Boolean),
+      avoidedQuestTypes: [],
+      durationMinutes: weekdayMinutes,
+      difficultyNotes: `Use ${profile.difficulty.toLowerCase()} pressure with ${profile.stressLevel.toLowerCase()} stress accounted for.`,
+      rotationRule:
+        "Rotate between main job, secondary job, fitness, diet, and discipline quests.",
+    },
+    motivationalStyle: profile.motivationStyle,
+    lifestyleNotes: [
+      `${profile.energyPattern} energy pattern`,
+      `${profile.stressLevel} stress`,
+      `${profile.sleepQuality} sleep quality`,
+    ],
+  };
+}
+
+function createDynamicQuest(
+  id: number,
+  input: {
+    title: string;
+    description: string;
+    xp: number;
+    source: QuestSource;
+    jobFocus: QuestJobFocus;
+    durationMinutes: number;
+    completionCondition: string;
+    tags: string[];
+    categories: InterestCategory[];
+    preferredBuilds?: BuildType[];
+  }
+): SpecialQuestTemplate {
+  return {
+    id,
+    title: input.title,
+    description: input.description,
+    xp: input.xp,
+    statRewards: pickStatReward(input.source),
+    penalty:
+      "If ignored, remove one low-value distraction tomorrow until the corrective action is complete.",
+    preferredBuilds: input.preferredBuilds ?? [
+      "Balanced",
+      "Warrior",
+      "Endurance",
+      "Monk",
+      "Scholar",
+    ],
+    tags: input.tags,
+    source: input.source,
+    jobFocus: input.jobFocus,
+    durationMinutes: input.durationMinutes,
+    completionCondition: input.completionCondition,
+    interestCategories: input.categories,
+  };
+}
+
+function createPersonalizedQuestTemplates(
+  profile: UserProfile,
+  aiAnalysis?: AiSystemAnalysis | null
+): SpecialQuestTemplate[] {
+  const personalization = getPersonalization(aiAnalysis, profile);
+  const mainJob = personalization.mainJob.title || "Main Job";
+  const secondaryJob = personalization.secondaryJob.title || "Secondary Job";
+  const duration = asPositiveMinutes(
+    personalization.questPreferences.durationMinutes,
+    profile.availableMinutesWeekday
+  );
+  const shortDuration = Math.max(10, Math.min(25, duration));
+  const categories: InterestCategory[] = personalization.interestCategories.length
+    ? personalization.interestCategories
+    : ["other"];
+  const mainTheme = personalization.mainJob.questThemes[0] ?? "skill work";
+  const sideTheme =
+    personalization.secondaryJob.questThemes[0] ??
+    personalization.hobbies[0] ??
+    "side practice";
+
+  return [
+    createDynamicQuest(9001, {
+      title: `${mainJob} Advancement Block`,
+      description: `Spend ${shortDuration} minutes on one concrete ${mainTheme} task that supports your real-life ${mainJob} path.`,
+      xp: 30,
+      source: "main_job",
+      jobFocus: "Main Job",
+      durationMinutes: shortDuration,
+      completionCondition: `Complete ${shortDuration} focused minutes and write one sentence about what moved forward.`,
+      tags: ["main-job", "focus", "discipline", ...categories],
+      categories,
+      preferredBuilds: ["Scholar", "Monk", "Balanced"],
+    }),
+    createDynamicQuest(9002, {
+      title: `${secondaryJob} Side Path Drill`,
+      description: `Train the ${secondaryJob} identity for ${shortDuration} minutes through ${sideTheme}. Keep it playful, but make the result real.`,
+      xp: 30,
+      source: "secondary_job",
+      jobFocus: "Secondary Job",
+      durationMinutes: shortDuration,
+      completionCondition: `Finish one measurable ${secondaryJob} practice block.`,
+      tags: ["secondary-job", "hobby", "practice", ...categories],
+      categories,
+      preferredBuilds: ["Scholar", "Monk", "Balanced", "Warrior"],
+    }),
+    createDynamicQuest(9003, {
+      title: "Body Protocol Calibration",
+      description: `${personalization.workoutRecommendation.primaryType}: complete ${shortDuration} minutes at ${personalization.workoutRecommendation.intensity.toLowerCase()} intensity, or use the fallback: ${personalization.workoutRecommendation.lowEnergyFallback}`,
+      xp: 25,
+      source: "workout",
+      jobFocus: "None",
+      durationMinutes: shortDuration,
+      completionCondition: `Complete the session or the low-energy fallback.`,
+      tags: ["fitness", "workout", "vitality"],
+      categories: ["fitness"],
+      preferredBuilds: ["Warrior", "Endurance", "Balanced"],
+    }),
+    createDynamicQuest(9004, {
+      title: "Nutrition Anchor",
+      description: personalization.dietRecommendation.baselineRule,
+      xp: 20,
+      source: "diet",
+      jobFocus: "None",
+      durationMinutes: 10,
+      completionCondition: "Complete one meal or snack using the nutrition baseline rule.",
+      tags: ["diet", "nutrition", "discipline"],
+      categories: ["nutrition"],
+      preferredBuilds: ["Endurance", "Warrior", "Balanced"],
+    }),
+    createDynamicQuest(9005, {
+      title: `${mainJob} x ${secondaryJob} Hybrid Mission`,
+      description: `Combine your real role and side identity: spend ${shortDuration} minutes creating, studying, planning, or practicing something that links ${mainJob} with ${secondaryJob}.`,
+      xp: 35,
+      source: "hybrid",
+      jobFocus: "Hybrid",
+      durationMinutes: shortDuration,
+      completionCondition: "Produce one small visible result: notes, reps, sketch, code, plan, or practice log.",
+      tags: ["hybrid", "main-job", "secondary-job", ...categories],
+      categories,
+    }),
+  ];
+}
+
 export function getTodayString() {
   return new Date().toISOString().split("T")[0];
 }
@@ -316,16 +657,19 @@ export function fitnessRank(level: FitnessLevel) {
 
 export function filterQuestPoolForProfile(
   stats: Stats,
-  profile: UserProfile
+  profile: UserProfile,
+  aiAnalysis?: AiSystemAnalysis | null
 ): SpecialQuestTemplate[] {
   const build = getProfileInfluencedBuild(stats, profile);
+  const dynamicQuests = createPersonalizedQuestTemplates(profile, aiAnalysis);
+  const completePool = [...specialQuestPool, ...dynamicQuests];
 
-  let pool = specialQuestPool.filter((quest) =>
+  let pool = completePool.filter((quest) =>
     quest.preferredBuilds.includes(build)
   );
 
   if (pool.length === 0) {
-    pool = specialQuestPool;
+    pool = completePool;
   }
 
   pool = pool.filter((quest) => {
@@ -365,6 +709,16 @@ export function filterQuestPoolForProfile(
   } else if (profile.studyInterest === "Language") {
     const tagged = pool.filter((q) => q.tags.includes("language"));
     if (tagged.length > 0) pool = tagged;
+  } else {
+    const interestCategory = studyInterestToCategory[profile.studyInterest];
+    if (interestCategory) {
+      const tagged = pool.filter(
+        (q) =>
+          q.tags.includes(interestCategory) ||
+          q.interestCategories?.includes(interestCategory)
+      );
+      if (tagged.length > 0) pool = tagged;
+    }
   }
 
   if (profile.sleepQuality === "Poor") {
@@ -396,15 +750,16 @@ export function filterQuestPoolForProfile(
     if (fitness.length > 0) pool = fitness;
   }
 
-  return pool.length > 0 ? pool : specialQuestPool;
+  return pool.length > 0 ? pool : completePool;
 }
 
 export function createDailySpecialQuest(
   dateString: string,
   stats: Stats,
-  profile: UserProfile
+  profile: UserProfile,
+  aiAnalysis?: AiSystemAnalysis | null
 ): SpecialQuest {
-  const poolToUse = filterQuestPoolForProfile(stats, profile);
+  const poolToUse = filterQuestPoolForProfile(stats, profile, aiAnalysis);
 
   if (poolToUse.length === 0) {
     const fallback = specialQuestPool[0];
@@ -448,6 +803,11 @@ export function createSpecialQuestFromAiSuggestion(
     penalty: suggestion.penalty,
     preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
     tags: suggestion.tags,
+    source: suggestion.source,
+    jobFocus: suggestion.jobFocus,
+    durationMinutes: suggestion.durationMinutes,
+    completionCondition: suggestion.completionCondition,
+    interestCategories: suggestion.interestCategories,
     completed: false,
     awardedToday: false,
     assignedDate: dateString,
@@ -469,9 +829,26 @@ export function getActiveAiQuest(
 
 export function getNextAiQuestIndex(
   aiAnalysis: AiSystemAnalysis | null,
-  currentIndex: number
+  currentIndex: number,
+  recentTitles: string[] = []
 ) {
   if (!aiAnalysis?.specialQuests?.length) return 0;
+  const normalizedRecentTitles = recentTitles
+    .map((title) => title.trim().toLowerCase())
+    .filter(Boolean);
+
+  for (let offset = 1; offset <= aiAnalysis.specialQuests.length; offset += 1) {
+    const candidateIndex = (currentIndex + offset) % aiAnalysis.specialQuests.length;
+    const candidate = aiAnalysis.specialQuests[candidateIndex];
+
+    if (
+      candidate &&
+      !normalizedRecentTitles.includes(candidate.title.trim().toLowerCase())
+    ) {
+      return candidateIndex;
+    }
+  }
+
   return (currentIndex + 1) % aiAnalysis.specialQuests.length;
 }
 
@@ -490,10 +867,15 @@ export function getPreviewSpecialQuests(
       penalty: quest.penalty,
       preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
       tags: quest.tags,
+      source: quest.source,
+      jobFocus: quest.jobFocus,
+      durationMinutes: quest.durationMinutes,
+      completionCondition: quest.completionCondition,
+      interestCategories: quest.interestCategories,
     }));
   }
 
-  const pool = filterQuestPoolForProfile(stats, profile);
+  const pool = filterQuestPoolForProfile(stats, profile, aiAnalysis);
   return pool.slice(0, 6);
 }
 
@@ -651,7 +1033,12 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     ...user,
     profile: safeProfile,
     quests: createDailyQuests(safeProfile),
-    specialQuest: createDailySpecialQuest(today, user.stats, safeProfile),
+    specialQuest: createDailySpecialQuest(
+      today,
+      user.stats,
+      safeProfile,
+      user.aiAnalysis
+    ),
     penaltyNotice,
     log,
     aiAnalysis: user.aiAnalysis ?? null,
