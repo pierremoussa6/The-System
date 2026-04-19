@@ -413,6 +413,9 @@ Special quest rules:
 - Agility should reward running, walking, hiking, mobility, conditioning, and speed/cardio work.
 - Magic Resistance should reward following the diet protocol, healthy meals, protein, vitamins, minerals, and other nutrition fundamentals.
 - Vitality should reward hydration, recovery, sleep, and general energy; drinking 2L water is the main daily Vitality anchor.
+- workoutDirection and dietDirection must be 1-2 complete sentences. Do not end mid-thought.
+- workoutRecommendation fallback and progressionRule must be complete, practical sentences.
+- dietRecommendation baselineRule and easyFallback must be complete, practical sentences.
 - Penalties are corrective side quests, not shame. They must match penaltyStyle and never be humiliating, unsafe, medically risky, or financially harmful.
 - penaltyAction must be specific, measurable, and useful for self-development. Prefer actions such as learning repair, savings transfer, environment reset, walk/mobility, meal prep, focused reflection, service/helping action, Main Job repair, or Secondary Job practice.
 - Financial penalties must be framed as voluntary savings/accountability, never spending or donating under pressure. Use SEK. Only use amounts that fit the user's profile and penaltyStyle: Light 50-100 SEK, Moderate 100-300 SEK, Strict 300-1000 SEK. If uncertain, choose a non-financial penalty.
@@ -424,7 +427,28 @@ Special quest rules:
 
 function boundedString(value: string, fallback: string, maxLength = 220) {
   const clean = typeof value === "string" ? value.trim() : "";
-  return (clean || fallback).slice(0, maxLength);
+  const text = clean || fallback;
+
+  if (text.length <= maxLength) return text;
+
+  const clipped = text.slice(0, maxLength).trimEnd();
+  const sentenceBoundary = Math.max(
+    clipped.lastIndexOf("."),
+    clipped.lastIndexOf("!"),
+    clipped.lastIndexOf("?")
+  );
+
+  if (sentenceBoundary >= Math.floor(maxLength * 0.55)) {
+    return clipped.slice(0, sentenceBoundary + 1);
+  }
+
+  const wordBoundary = clipped.lastIndexOf(" ");
+  const safeText =
+    wordBoundary >= Math.floor(maxLength * 0.45)
+      ? clipped.slice(0, wordBoundary).trimEnd()
+      : clipped;
+
+  return /[.!?]$/.test(safeText) ? safeText : `${safeText}.`;
 }
 
 function sanitizeStringArray(values: string[] | undefined, fallback: string[]) {
@@ -477,12 +501,12 @@ function sanitizeWorkoutRecommendation(
     lowEnergyFallback: boundedString(
       raw.lowEnergyFallback,
       "Walk for 10 minutes or do light mobility.",
-      180
+      320
     ),
     progressionRule: boundedString(
       raw.progressionRule,
       "Increase one small variable each week.",
-      180
+      320
     ),
   };
 }
@@ -497,12 +521,12 @@ function sanitizeDietRecommendation(
     baselineRule: boundedString(
       raw.baselineRule,
       "Build one meal around protein, plants, and water.",
-      180
+      320
     ),
     easyFallback: boundedString(
       raw.easyFallback,
       "Choose the best available meal instead of aiming for perfect.",
-      180
+      320
     ),
     constraints: sanitizeStringArray(
       raw.constraints,
@@ -652,8 +676,8 @@ function sanitizeAnalysis(raw: RawAnalysis, profile: UserProfile): AiSystemAnaly
     playerSummary: boundedString(raw.playerSummary, "A player ready for calibration.", 320),
     recommendedSystemTone: raw.recommendedSystemTone,
     primaryFocus: raw.primaryFocus,
-    dietDirection: boundedString(raw.dietDirection, "Build a simple repeatable food baseline.", 260),
-    workoutDirection: boundedString(raw.workoutDirection, "Train consistently with a low-energy fallback.", 260),
+    dietDirection: boundedString(raw.dietDirection, "Build a simple repeatable food baseline.", 520),
+    workoutDirection: boundedString(raw.workoutDirection, "Train consistently with a low-energy fallback.", 520),
     weeklyStrategy: boundedString(raw.weeklyStrategy, "Use small daily wins and steady pressure.", 320),
     personalization: {
       primaryGoals: sanitizeStringArray(personalization.primaryGoals, [profile.goal || "Improve daily life"]),

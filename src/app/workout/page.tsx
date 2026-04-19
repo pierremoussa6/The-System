@@ -68,12 +68,12 @@ export default function WorkoutPage() {
           <div className="space-y-3">
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Weekly Objective</p>
-              <p className="text-white">{aiWeeklyPlan.weekObjective}</p>
+              <p className="break-words leading-relaxed text-white">{aiWeeklyPlan.weekObjective}</p>
             </div>
 
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Training Focus</p>
-              <p className="text-zinc-200">{aiWeeklyPlan.trainingFocus}</p>
+              <p className="break-words leading-relaxed text-zinc-200">{aiWeeklyPlan.trainingFocus}</p>
             </div>
 
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
@@ -141,15 +141,15 @@ export default function WorkoutPage() {
                 <p className="mb-1 text-sm text-zinc-400">
                   Workout Recommendation Profile
                 </p>
-                <p className="text-zinc-200">
+                <p className="break-words leading-relaxed text-zinc-200">
                   {personalization.workoutRecommendation.primaryType} at{" "}
                   {personalization.workoutRecommendation.intensity.toLowerCase()}{" "}
                   intensity, {personalization.workoutRecommendation.weeklyFrequency}.
                 </p>
-                <p className="mt-2 text-sm text-zinc-400">
+                <p className="mt-2 break-words text-sm leading-relaxed text-zinc-400">
                   Fallback: {personalization.workoutRecommendation.lowEnergyFallback}
                 </p>
-                <p className="mt-1 text-sm text-zinc-400">
+                <p className="mt-1 break-words text-sm leading-relaxed text-zinc-400">
                   Progression: {personalization.workoutRecommendation.progressionRule}
                 </p>
               </div>
@@ -157,13 +157,13 @@ export default function WorkoutPage() {
 
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Workout Direction</p>
-              <p className="text-zinc-200">{aiAnalysis.workoutDirection}</p>
+              <p className="break-words leading-relaxed text-zinc-200">{aiAnalysis.workoutDirection}</p>
             </div>
 
             {aiWeeklyPlan && (
               <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
                 <p className="mb-1 text-sm text-zinc-400">System Warning</p>
-                <p className="text-zinc-200">{aiWeeklyPlan.systemWarning}</p>
+                <p className="break-words leading-relaxed text-zinc-200">{aiWeeklyPlan.systemWarning}</p>
               </div>
             )}
           </div>

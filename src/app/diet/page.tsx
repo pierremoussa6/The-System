@@ -66,17 +66,17 @@ export default function DietPage() {
           <div className="space-y-3">
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Weekly Objective</p>
-              <p className="text-white">{aiWeeklyPlan.weekObjective}</p>
+              <p className="break-words leading-relaxed text-white">{aiWeeklyPlan.weekObjective}</p>
             </div>
 
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Nutrition Focus</p>
-              <p className="text-zinc-200">{aiWeeklyPlan.nutritionFocus}</p>
+              <p className="break-words leading-relaxed text-zinc-200">{aiWeeklyPlan.nutritionFocus}</p>
             </div>
 
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Recovery Focus</p>
-              <p className="text-zinc-200">{aiWeeklyPlan.recoveryFocus}</p>
+              <p className="break-words leading-relaxed text-zinc-200">{aiWeeklyPlan.recoveryFocus}</p>
             </div>
           </div>
         ) : (
@@ -158,13 +158,13 @@ export default function DietPage() {
                 <p className="mb-1 text-sm text-zinc-400">
                   Diet Recommendation Profile
                 </p>
-                <p className="text-zinc-200">
+                <p className="break-words leading-relaxed text-zinc-200">
                   {personalization.dietRecommendation.baselineRule}
                 </p>
-                <p className="mt-2 text-sm text-zinc-400">
+                <p className="mt-2 break-words text-sm leading-relaxed text-zinc-400">
                   Priorities: {personalization.dietRecommendation.priorities.join(", ")}
                 </p>
-                <p className="mt-1 text-sm text-zinc-400">
+                <p className="mt-1 break-words text-sm leading-relaxed text-zinc-400">
                   Fallback: {personalization.dietRecommendation.easyFallback}
                 </p>
               </div>
@@ -172,13 +172,13 @@ export default function DietPage() {
 
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">Diet Direction</p>
-              <p className="text-zinc-200">{aiAnalysis.dietDirection}</p>
+              <p className="break-words leading-relaxed text-zinc-200">{aiAnalysis.dietDirection}</p>
             </div>
 
             {aiWeeklyPlan && (
               <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
                 <p className="mb-1 text-sm text-zinc-400">System Warning</p>
-                <p className="text-zinc-200">{aiWeeklyPlan.systemWarning}</p>
+                <p className="break-words leading-relaxed text-zinc-200">{aiWeeklyPlan.systemWarning}</p>
               </div>
             )}
           </div>
