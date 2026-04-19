@@ -29,8 +29,34 @@ export const defaultStats: Stats = {
   strength: 0,
   vitality: 0,
   discipline: 0,
-  focus: 0,
+  intelligence: 0,
+  agility: 0,
+  magicResistance: 0,
 };
+
+type LegacyStats = Partial<Stats> & {
+  focus?: number;
+  magic_resistance?: number;
+};
+
+function toStatNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.round(value))
+    : 0;
+}
+
+export function normalizeStats(stats?: LegacyStats | null): Stats {
+  return {
+    strength: toStatNumber(stats?.strength),
+    vitality: toStatNumber(stats?.vitality),
+    discipline: toStatNumber(stats?.discipline),
+    intelligence: toStatNumber(stats?.intelligence ?? stats?.focus),
+    agility: toStatNumber(stats?.agility),
+    magicResistance: toStatNumber(
+      stats?.magicResistance ?? stats?.magic_resistance
+    ),
+  };
+}
 
 export const defaultProfile: UserProfile = {
   name: "",
@@ -69,8 +95,8 @@ export const defaultProfile: UserProfile = {
 };
 
 export const dailyQuestTemplates = [
-  { id: 1, title: "Gym Workout", baseXp: 50 },
-  { id: 2, title: "Eat Clean Meals", baseXp: 30 },
+  { id: 1, title: "Training Protocol", baseXp: 35 },
+  { id: 2, title: "Nutrition Protocol", baseXp: 30 },
   { id: 3, title: "Drink 2L Water", baseXp: 20 },
 ];
 
@@ -80,7 +106,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     title: "Read 10 Pages",
     description: "Read 10 pages of a useful book today.",
     xp: 15,
-    statRewards: { focus: 1, discipline: 1 },
+    statRewards: { intelligence: 1, discipline: 1 },
     penalty: "Read 5 pages and write one useful note before leisure.",
     preferredBuilds: ["Scholar", "Monk", "Balanced"],
     tags: ["reading", "focus"],
@@ -90,7 +116,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     title: "Study Programming for 15 Minutes",
     description: "Spend 15 focused minutes coding or learning programming.",
     xp: 20,
-    statRewards: { focus: 1, discipline: 1 },
+    statRewards: { intelligence: 1, discipline: 1 },
     penalty: "Do a 10-minute learning repair block before entertainment.",
     preferredBuilds: ["Scholar", "Balanced"],
     tags: ["programming", "study", "focus"],
@@ -100,7 +126,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     title: "Play Chess for 10 Minutes",
     description: "Play chess or solve tactical puzzles for 10 minutes.",
     xp: 15,
-    statRewards: { focus: 1 },
+    statRewards: { intelligence: 1 },
     penalty: "Solve one tactical puzzle and write the missed pattern.",
     preferredBuilds: ["Scholar", "Balanced"],
     tags: ["chess", "focus"],
@@ -120,7 +146,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     title: "Journal for 5 Minutes",
     description: "Write down your thoughts, goals, or reflections for 5 minutes.",
     xp: 10,
-    statRewards: { discipline: 1, focus: 1 },
+    statRewards: { discipline: 1, intelligence: 1 },
     penalty: "Write a 5-minute after-action note before gaming or scrolling.",
     preferredBuilds: ["Monk", "Scholar", "Balanced"],
     tags: ["reflection", "discipline"],
@@ -151,7 +177,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     title: "Meditate for 5 Minutes",
     description: "Sit quietly and meditate for 5 minutes.",
     xp: 15,
-    statRewards: { discipline: 1, focus: 1 },
+    statRewards: { discipline: 1, intelligence: 1 },
     penalty: "Complete a 3-minute breathing reset before the next screen session.",
     preferredBuilds: ["Monk", "Balanced"],
     tags: ["discipline", "recovery", "focus"],
@@ -161,7 +187,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     title: "Practice a Language for 10 Minutes",
     description: "Do 10 minutes of language practice today.",
     xp: 15,
-    statRewards: { focus: 1, discipline: 1 },
+    statRewards: { intelligence: 1, discipline: 1 },
     penalty: "Complete 10 minutes of language repair before casual scrolling.",
     preferredBuilds: ["Scholar", "Balanced"],
     tags: ["language", "study", "focus"],
@@ -204,7 +230,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description:
       "Complete one 25-minute focused block on the most important study or work task.",
     xp: 30,
-    statRewards: { focus: 2, discipline: 1 },
+    statRewards: { intelligence: 2, discipline: 1 },
     penalty: "Block the most distracting app until one focus block is completed.",
     preferredBuilds: ["Scholar", "Monk", "Balanced"],
     tags: ["focus", "study", "discipline"],
@@ -226,7 +252,7 @@ export const specialQuestPool: SpecialQuestTemplate[] = [
     description:
       "Clear one visible space for 10 minutes so your environment stops draining attention.",
     xp: 15,
-    statRewards: { discipline: 1, focus: 1 },
+    statRewards: { discipline: 1, intelligence: 1 },
     penalty: "Reset one visible space for 10 minutes before entertainment.",
     preferredBuilds: ["Monk", "Scholar", "Balanced"],
     tags: ["discipline", "focus", "lifestyle"],
@@ -304,13 +330,13 @@ function asPositiveMinutes(value: number, fallback: number) {
 }
 
 function pickStatReward(source: QuestSource): Partial<Stats> {
-  if (source === "main_job") return { focus: 2, discipline: 1 };
-  if (source === "secondary_job") return { focus: 1, discipline: 1 };
-  if (source === "workout") return { strength: 1, vitality: 1 };
-  if (source === "diet") return { vitality: 1, discipline: 1 };
+  if (source === "main_job") return { intelligence: 2, discipline: 1 };
+  if (source === "secondary_job") return { intelligence: 1, discipline: 1 };
+  if (source === "workout") return { strength: 1, agility: 1 };
+  if (source === "diet") return { magicResistance: 1, vitality: 1 };
   if (source === "recovery") return { vitality: 2 };
   if (source === "discipline") return { discipline: 2 };
-  return { focus: 1, discipline: 1 };
+  return { intelligence: 1, discipline: 1 };
 }
 
 const penaltyAmountByStyle: Record<PenaltyStyle, number> = {
@@ -966,14 +992,14 @@ export function getDayNumberFromDate(dateString: string) {
 }
 
 export function getBuildFromStats(stats: Stats): BuildType {
-  const { strength, vitality, discipline, focus } = stats;
-  const max = Math.max(strength, vitality, discipline, focus);
+  const { strength, vitality, discipline, intelligence } = stats;
+  const max = Math.max(strength, vitality, discipline, intelligence);
 
   const winners = [
     strength === max ? "Warrior" : null,
     vitality === max ? "Endurance" : null,
     discipline === max ? "Monk" : null,
-    focus === max ? "Scholar" : null,
+    intelligence === max ? "Scholar" : null,
   ].filter(Boolean) as BuildType[];
 
   if (winners.length !== 1) return "Balanced";
@@ -1016,14 +1042,111 @@ export function scalePenaltyText(
   return `${basePenalty} Standard mode: finish the corrective action before entertainment.`;
 }
 
-export function createDailyQuests(profile: UserProfile): Quest[] {
-  const base = dailyQuestTemplates.map((template) => ({
-    id: template.id,
-    title: template.title,
-    xp: scaleXp(template.baseXp, profile.difficulty),
+function isStrengthTrainingDay(dateString = getTodayString()) {
+  const day = new Date(`${dateString}T12:00:00`).getDay();
+  return day === 1 || day === 3 || day === 5;
+}
+
+function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString()): Quest {
+  const prefersCardio =
+    profile.workoutPreference === "Running" ||
+    profile.workoutPreference === "Walking" ||
+    profile.customInterests.toLowerCase().includes("hiking") ||
+    profile.hobbies.toLowerCase().includes("hiking");
+  const prefersGym = profile.workoutPreference === "Gym";
+  const strengthDay = isStrengthTrainingDay(dateString);
+
+  if (prefersGym && strengthDay) {
+    return {
+      id: 1,
+      title: "Gym Strength Session",
+      description:
+        "Complete the planned gym session from your weekly protocol, or do the smallest safe strength version if time is tight.",
+      xp: scaleXp(50, profile.difficulty),
+      completed: false,
+      awardedToday: false,
+      statRewards: { strength: 2, discipline: 1 },
+    };
+  }
+
+  if (prefersCardio) {
+    return {
+      id: 1,
+      title:
+        profile.workoutPreference === "Running"
+          ? "Cardio Run Protocol"
+          : "Cardio Walk / Hike Protocol",
+      description:
+        "Complete a sustainable run, walk, or hike that matches your current energy.",
+      xp: scaleXp(35, profile.difficulty),
+      completed: false,
+      awardedToday: false,
+      statRewards: { agility: 2, vitality: 1 },
+    };
+  }
+
+  return {
+    id: 1,
+    title: prefersGym ? "Recovery Walk or Mobility" : "Training Protocol",
+    description: prefersGym
+      ? "Non-gym day: keep momentum with walking, mobility, or easy conditioning."
+      : "Complete the movement plan that fits today: gym, home training, cardio, or mobility.",
+    xp: scaleXp(prefersGym ? 25 : 35, profile.difficulty),
     completed: false,
     awardedToday: false,
-  }));
+    statRewards: prefersGym
+      ? { agility: 1, vitality: 1 }
+      : { strength: 1, agility: 1 },
+  };
+}
+
+export function normalizePartialStats(
+  rewards?: (Partial<Stats> & { focus?: number; magic_resistance?: number }) | null
+): Partial<Stats> {
+  if (!rewards) return {};
+
+  const cleaned: Partial<Stats> = {};
+  if (typeof rewards.strength === "number") cleaned.strength = rewards.strength;
+  if (typeof rewards.vitality === "number") cleaned.vitality = rewards.vitality;
+  if (typeof rewards.discipline === "number") cleaned.discipline = rewards.discipline;
+  if (typeof (rewards.intelligence ?? rewards.focus) === "number") {
+    cleaned.intelligence = rewards.intelligence ?? rewards.focus;
+  }
+  if (typeof rewards.agility === "number") cleaned.agility = rewards.agility;
+  if (typeof (rewards.magicResistance ?? rewards.magic_resistance) === "number") {
+    cleaned.magicResistance =
+      rewards.magicResistance ?? rewards.magic_resistance;
+  }
+
+  return cleaned;
+}
+
+export function createDailyQuests(
+  profile: UserProfile,
+  dateString = getTodayString()
+): Quest[] {
+  const base: Quest[] = [
+    getDailyTrainingQuest(profile, dateString),
+    {
+      id: 2,
+      title: "Nutrition Protocol",
+      description:
+        "Follow the diet direction: protein, vitamins, minerals, and a meal choice that supports your goal.",
+      xp: scaleXp(30, profile.difficulty),
+      completed: false,
+      awardedToday: false,
+      statRewards: { magicResistance: 2, vitality: 1 },
+    },
+    {
+      id: 3,
+      title: "Drink 2L Water",
+      description: "Hydrate across the day. This is the main Vitality anchor.",
+      xp: scaleXp(20, profile.difficulty),
+      completed: false,
+      awardedToday: false,
+      statRewards: { vitality: 2 },
+    },
+  ];
 
   if (!profile.wantsDietSupport) {
     return base.filter((quest) => quest.id !== 2);
@@ -1047,6 +1170,7 @@ export function getProfileInfluencedBuild(
       return "Endurance";
     case "Discipline":
       return "Monk";
+    case "Intelligence":
     case "Focus":
       return "Scholar";
     default:
@@ -1145,9 +1269,12 @@ export function filterQuestPoolForProfile(
     if (discipline.length > 0) pool = discipline;
   }
 
-  if (profile.mainImprovementArea === "Focus") {
-    const focus = pool.filter((q) => q.tags.includes("focus"));
-    if (focus.length > 0) pool = focus;
+  if (
+    profile.mainImprovementArea === "Intelligence" ||
+    profile.mainImprovementArea === "Focus"
+  ) {
+    const intelligence = pool.filter((q) => q.tags.includes("focus"));
+    if (intelligence.length > 0) pool = intelligence;
   }
 
   if (profile.mainImprovementArea === "Fitness") {
@@ -1232,7 +1359,7 @@ export function createSpecialQuestFromAiSuggestion(
     title: suggestion.title,
     description: suggestion.description,
     xp: suggestion.xp,
-    statRewards: suggestion.statRewards,
+    statRewards: normalizePartialStats(suggestion.statRewards),
     penalty: suggestion.penalty,
     penaltyAction: suggestion.penaltyAction,
     preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
@@ -1387,7 +1514,9 @@ export function appendHistoryEntry(
     strength: nextStats.strength,
     vitality: nextStats.vitality,
     discipline: nextStats.discipline,
-    focus: nextStats.focus,
+    intelligence: nextStats.intelligence,
+    agility: nextStats.agility,
+    magicResistance: nextStats.magicResistance,
   };
 
   const lastEntry = currentHistory[currentHistory.length - 1];
@@ -1398,7 +1527,9 @@ export function appendHistoryEntry(
     lastEntry.strength === newEntry.strength &&
     lastEntry.vitality === newEntry.vitality &&
     lastEntry.discipline === newEntry.discipline &&
-    lastEntry.focus === newEntry.focus
+    lastEntry.intelligence === newEntry.intelligence &&
+    lastEntry.agility === newEntry.agility &&
+    lastEntry.magicResistance === newEntry.magicResistance
   ) {
     return currentHistory;
   }
@@ -1431,18 +1562,26 @@ export function addStatRewards(
     strength: currentStats.strength + (rewards.strength ?? 0),
     vitality: currentStats.vitality + (rewards.vitality ?? 0),
     discipline: currentStats.discipline + (rewards.discipline ?? 0),
-    focus: currentStats.focus + (rewards.focus ?? 0),
+    intelligence: currentStats.intelligence + (rewards.intelligence ?? 0),
+    agility: currentStats.agility + (rewards.agility ?? 0),
+    magicResistance:
+      currentStats.magicResistance + (rewards.magicResistance ?? 0),
   };
 }
 
-export function getQuestStatRewards(questId: number): Partial<Stats> {
+export function getQuestStatRewards(
+  questId: number,
+  quest?: Quest
+): Partial<Stats> {
+  if (quest?.statRewards) return quest.statRewards;
+
   switch (questId) {
     case 1:
       return { strength: 2 };
     case 2:
-      return { vitality: 2 };
+      return { magicResistance: 2, vitality: 1 };
     case 3:
-      return { vitality: 1 };
+      return { vitality: 2 };
     default:
       return {};
   }
@@ -1455,6 +1594,21 @@ export function createPenaltyNotice(
     title: `Penalty Triggered: ${specialQuest.title}`,
     message: specialQuest.penalty,
     fromDate: specialQuest.assignedDate,
+  };
+}
+
+export function shouldUseRecoveryMode(hp: number | null | undefined) {
+  return typeof hp === "number" && hp < 50;
+}
+
+export function cancelSpecialQuestForRecovery(
+  specialQuest: SpecialQuest
+): SpecialQuest {
+  return {
+    ...specialQuest,
+    completed: true,
+    awardedToday: true,
+    status: "waived",
   };
 }
 
@@ -1495,6 +1649,8 @@ export function createNewUserRecord(name: string): UserRecord {
     artifacts: createStarterArtifacts(),
     activeEffects,
     lastResetDate: today,
+    dailyHp: null,
+    dailyHpDate: null,
     specialQuestMemory: appendSpecialQuestMemory(
       specialQuestMemory,
       specialQuest
@@ -1504,9 +1660,14 @@ export function createNewUserRecord(name: string): UserRecord {
 
 export function normalizeUserForToday(user: UserRecord): UserRecord {
   const today = getTodayString();
+  const safeStats = normalizeStats(user.stats as LegacyStats);
   const safeProfile: UserProfile = {
     ...defaultProfile,
     ...user.profile,
+    mainImprovementArea:
+      user.profile?.mainImprovementArea === "Focus"
+        ? "Intelligence"
+        : user.profile?.mainImprovementArea ?? defaultProfile.mainImprovementArea,
   };
 
   const safeEffects: ActiveEffects = {
@@ -1520,6 +1681,9 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     return {
       ...user,
       profile: safeProfile,
+      stats: safeStats,
+      dailyHp: user.dailyHpDate === today ? user.dailyHp ?? null : null,
+      dailyHpDate: user.dailyHpDate === today ? user.dailyHpDate ?? null : null,
       aiAnalysis: user.aiAnalysis ?? null,
       aiWeeklyPlan: user.aiWeeklyPlan ?? null,
       aiQuestIndex: user.aiQuestIndex ?? 0,
@@ -1544,7 +1708,7 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
 
   const nextSpecialQuest = createDailySpecialQuest(
     today,
-    user.stats,
+    safeStats,
     safeProfile,
     user.aiAnalysis,
     safeSpecialQuestMemory
@@ -1554,6 +1718,7 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     ...user,
     profile: safeProfile,
     quests: createDailyQuests(safeProfile),
+    stats: safeStats,
     specialQuest: nextSpecialQuest,
     penaltyNotice,
     log,
@@ -1565,9 +1730,13 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       doubleDailyXpDate: null,
     },
     lastResetDate: today,
+    dailyHp: null,
+    dailyHpDate: null,
     specialQuestMemory: appendSpecialQuestMemory(
       safeSpecialQuestMemory,
       nextSpecialQuest
     ),
   };
 }
+
+

@@ -49,8 +49,10 @@ export default function DashboardPage() {
     aiAnalysis,
     aiQuestIndex,
     aiWeeklyPlan,
+    dailyHp,
     previewSpecialQuests,
     regenerateSpecialQuest,
+    updateDailyHp,
     updateAiWeeklyPlan,
   } = useApp();
 
@@ -130,6 +132,7 @@ export default function DashboardPage() {
     specialQuest.status !== "urgent" && !specialQuest.completed;
   const canCompleteSpecialQuest =
     !specialQuest.completed && !specialQuest.awardedToday;
+  const recoveryModeActive = typeof dailyHp === "number" && dailyHp < 50;
 
   const currentRank = getSystemRank(totalXp, stats);
   const currentRankLabel = getRankLabel(currentRank);
@@ -151,6 +154,42 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="mb-6 text-3xl text-blue-400">Dashboard</h1>
+
+      <PanelCard className={recoveryModeActive ? "border-emerald-500" : "border-cyan-500"}>
+        <SectionTitle title="Daily HP Check" colorClass="text-cyan-400" />
+        <div className="space-y-3">
+          <p className="text-zinc-300">
+            Set today&apos;s HP from 0 to 100 based on how you feel right now.
+          </p>
+          <div className="grid gap-3 md:grid-cols-[1fr_120px]">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={dailyHp ?? 75}
+              onChange={(event) => updateDailyHp(Number(event.target.value))}
+            />
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={dailyHp ?? ""}
+              onChange={(event) => updateDailyHp(Number(event.target.value))}
+              className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+              placeholder="HP"
+            />
+          </div>
+          {recoveryModeActive ? (
+            <p className="rounded border border-emerald-500/30 bg-emerald-500/10 p-3 text-emerald-200">
+              HP below 50. Focus on recovery and the daily quests. The special quest is cancelled for today.
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-400">
+              HP 50 or higher keeps the normal special quest protocol active.
+            </p>
+          )}
+        </div>
+      </PanelCard>
 
       {penaltyNotice && (
         <PanelCard className="border-red-500">
@@ -204,7 +243,7 @@ export default function DashboardPage() {
             <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
               <p className="mb-1 text-sm text-zinc-400">System Pressure</p>
               <p className="text-white">Tone: {aiAnalysis.recommendedSystemTone}</p>
-              <p className="text-white">Primary Focus: {aiAnalysis.primaryFocus}</p>
+              <p className="text-white">Primary Direction: {aiAnalysis.primaryFocus}</p>
               <p className="text-white">
                 Rotation: {questRotationPreferenceLabels[profile.questRotationPreference]}
               </p>
@@ -667,8 +706,11 @@ export default function DashboardPage() {
         <StatCard label="Strength" value={stats.strength} />
         <StatCard label="Vitality" value={stats.vitality} />
         <StatCard label="Discipline" value={stats.discipline} />
-        <StatCard label="Focus" value={stats.focus} />
+        <StatCard label="Intelligence" value={stats.intelligence} />
+        <StatCard label="Agility" value={stats.agility} />
+        <StatCard label="Magic Resistance" value={stats.magicResistance} />
       </div>
     </div>
   );
 }
+

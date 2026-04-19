@@ -4,13 +4,17 @@ export type Quest = {
   xp: number;
   completed: boolean;
   awardedToday: boolean;
+  statRewards?: Partial<Stats>;
+  description?: string;
 };
 
 export type Stats = {
   strength: number;
   vitality: number;
   discipline: number;
-  focus: number;
+  intelligence: number;
+  agility: number;
+  magicResistance: number;
 };
 
 export type HistoryEntry = {
@@ -18,7 +22,9 @@ export type HistoryEntry = {
   strength: number;
   vitality: number;
   discipline: number;
-  focus: number;
+  intelligence: number;
+  agility: number;
+  magicResistance: number;
 };
 
 export type BuildType =
@@ -37,6 +43,7 @@ export type SleepQuality = "Poor" | "Average" | "Good";
 export type MainImprovementArea =
   | "Fitness"
   | "Discipline"
+  | "Intelligence"
   | "Focus"
   | "Lifestyle"
   | "Balanced";
@@ -376,6 +383,8 @@ export type UserRecord = {
   artifacts: Artifact[];
   activeEffects: ActiveEffects;
   lastResetDate: string;
+  dailyHp: number | null;
+  dailyHpDate: string | null;
   specialQuestMemory?: SpecialQuestMemory;
 };
 
@@ -411,6 +420,8 @@ export type AppState = {
   aiQuestIndex: number;
   artifacts: Artifact[];
   activeEffects: ActiveEffects;
+  dailyHp: number | null;
+  dailyHpDate: string | null;
 
   toggleQuest: (id: number) => void;
   completeSpecialQuest: () => void;
@@ -420,6 +431,7 @@ export type AppState = {
   updateProfile: (profile: UserProfile) => void;
   updateAiAnalysis: (analysis: AiSystemAnalysis | null) => void;
   updateAiWeeklyPlan: (plan: AiWeeklyPlan | null) => void;
+  updateDailyHp: (hp: number) => void;
   activateArtifact: (key: ArtifactKey) => void;
 
   createUser: (name: string) => void;
@@ -429,3 +441,4 @@ export type AppState = {
   previewSpecialQuests: () => SpecialQuestTemplate[];
   regenerateSpecialQuest: () => void;
 };
+

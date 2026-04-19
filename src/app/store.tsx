@@ -28,6 +28,7 @@ import {
   appendHistoryEntry,
   appendLog,
   appendSpecialQuestMemory,
+  cancelSpecialQuestForRecovery,
   createDailyQuests,
   createDailySpecialQuest,
   createNewUserRecord,
@@ -39,8 +40,10 @@ import {
   getQuestStatRewards,
   getTodayString,
   getYesterdayString,
+  normalizeStats,
   normalizeSpecialQuestMemory,
   normalizeUserForToday,
+  shouldUseRecoveryMode,
 } from "./quest-engine";
 import { useAuth } from "./auth-context";
 import { getSupabaseBrowserClient } from "./lib/supabase/client";
@@ -136,6 +139,7 @@ function prepareAuthenticatedUserRecord(
     ...baseUser,
     id: authUserId,
     profile: nextProfile,
+    stats: normalizeStats(baseUser.stats),
   });
 }
 
@@ -148,7 +152,7 @@ function getUserStatePayload(user: UserRecord) {
     strength: user.stats.strength,
     vitality: user.stats.vitality,
     discipline: user.stats.discipline,
-    focus: user.stats.focus,
+    focus: user.stats.intelligence,
     ai_analysis_json: user.aiAnalysis,
     ai_weekly_plan_json: user.aiWeeklyPlan,
     ai_quest_index: user.aiQuestIndex,
@@ -326,7 +330,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!quest.completed) {
           if (!quest.awardedToday) {
             xpToAdd = hasDoubleXp ? quest.xp * 2 : quest.xp;
-            statRewards = getQuestStatRewards(quest.id);
+            statRewards = getQuestStatRewards(quest.id, quest);
             loggedQuestTitle = quest.title;
           }
 
@@ -351,7 +355,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (statRewards.strength ?? 0) > 0 ||
         (statRewards.vitality ?? 0) > 0 ||
         (statRewards.discipline ?? 0) > 0 ||
-        (statRewards.focus ?? 0) > 0;
+        (statRewards.intelligence ?? 0) > 0 ||
+        (statRewards.agility ?? 0) > 0 ||
+        (statRewards.magicResistance ?? 0) > 0;
 
       if (gainedDirectStats) {
         nextHistory = appendHistoryEntry(nextHistory, nextStats);
@@ -508,6 +514,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         current.aiAnalysis,
         safeMemory
       );
+      const effectiveSpecialQuest = shouldUseRecoveryMode(current.dailyHp)
+        ? cancelSpecialQuestForRecovery(nextSpecialQuest)
+        : nextSpecialQuest;
 
       const nextLog = appendLog(current.log, {
         type: "system_notice",
@@ -520,11 +529,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return {
         ...current,
         profile: safeProfile,
-        quests: createDailyQuests(safeProfile),
-        specialQuest: nextSpecialQuest,
+        quests: createDailyQuests(safeProfile, getTodayString()),
+        specialQuest: effectiveSpecialQuest,
         specialQuestMemory: appendSpecialQuestMemory(
           safeMemory,
-          nextSpecialQuest
+          effectiveSpecialQuest
         ),
         log: nextLog,
       };
@@ -537,7 +546,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateActiveUser((current) => {
       const today = getTodayString();
       const firstAiQuest = getActiveAiQuest(analysis, 0);
-      const nextSpecialQuest = firstAiQuest
+      const generatedSpecialQuest = firstAiQuest
         ? createSpecialQuestFromAiSuggestion(
             firstAiQuest,
             today,
@@ -545,6 +554,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             analysis
           )
         : current.specialQuest;
+      const nextSpecialQuest = shouldUseRecoveryMode(current.dailyHp)
+        ? cancelSpecialQuestForRecovery(generatedSpecialQuest)
+        : generatedSpecialQuest;
 
       let nextLog = current.log;
 
@@ -553,7 +565,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           type: "system_analysis",
           title: "System Diagnosis Complete",
           details:
-            `Archetype: ${analysis.archetype}. Focus: ${analysis.primaryFocus}. ` +
+            `Archetype: ${analysis.archetype}. Direction: ${analysis.primaryFocus}. ` +
             `Main Job: ${analysis.personalization?.mainJob.title ?? "Unknown"}. ` +
             `Secondary Job: ${analysis.personalization?.secondaryJob.title ?? "Unknown"}.`,
         });
@@ -604,6 +616,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...current,
         aiWeeklyPlan: plan,
         log: nextLog,
+      };
+    });
+  }
+
+  function updateDailyHp(hp: number) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const today = getTodayString();
+      const safeHp = Math.max(0, Math.min(100, Math.round(hp)));
+      const enterRecovery = shouldUseRecoveryMode(safeHp);
+      const shouldCancelSpecial =
+        enterRecovery &&
+        current.specialQuest.status !== "waived" &&
+        !current.specialQuest.completed;
+
+      return {
+        ...current,
+        dailyHp: safeHp,
+        dailyHpDate: today,
+        specialQuest: shouldCancelSpecial
+          ? cancelSpecialQuestForRecovery(current.specialQuest)
+          : current.specialQuest,
+        log: shouldCancelSpecial
+          ? appendLog(current.log, {
+              type: "system_notice",
+              title: "Recovery Mode Activated",
+              details:
+                "HP registered below 50. Focus on recovery and daily quests. The special quest is cancelled for today.",
+            })
+          : current.log,
       };
     });
   }
@@ -783,12 +826,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const nextAiQuest = getActiveAiQuest(current.aiAnalysis, nextIndex);
 
         if (nextAiQuest) {
-          const nextSpecialQuest = createSpecialQuestFromAiSuggestion(
+          const generatedSpecialQuest = createSpecialQuestFromAiSuggestion(
             nextAiQuest,
             today,
             current.profile,
             current.aiAnalysis
           );
+          const nextSpecialQuest = shouldUseRecoveryMode(current.dailyHp)
+            ? cancelSpecialQuestForRecovery(generatedSpecialQuest)
+            : generatedSpecialQuest;
 
           return {
             ...current,
@@ -807,13 +853,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const nextSpecialQuest = createDailySpecialQuest(
+      const generatedSpecialQuest = createDailySpecialQuest(
         today,
         current.stats,
         current.profile,
         current.aiAnalysis,
         current.specialQuestMemory
       );
+      const nextSpecialQuest = shouldUseRecoveryMode(current.dailyHp)
+        ? cancelSpecialQuestForRecovery(generatedSpecialQuest)
+        : generatedSpecialQuest;
 
       return {
         ...current,
@@ -857,6 +906,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         activeEffects: activeUser?.activeEffects ?? {
           doubleDailyXpDate: null,
         },
+        dailyHp: activeUser?.dailyHp ?? null,
+        dailyHpDate: activeUser?.dailyHpDate ?? null,
 
         toggleQuest,
         completeSpecialQuest,
@@ -866,6 +917,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateProfile,
         updateAiAnalysis,
         updateAiWeeklyPlan,
+        updateDailyHp,
         activateArtifact,
 
         createUser,
@@ -890,3 +942,4 @@ export function useApp() {
 
   return context;
 }
+

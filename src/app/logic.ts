@@ -73,7 +73,14 @@ export function explainSpecialQuestChoice(profile: UserProfile) {
 }
 
 export function getStatTotal(stats: Stats) {
-  return stats.strength + stats.vitality + stats.discipline + stats.focus;
+  return (
+    stats.strength +
+    stats.vitality +
+    stats.discipline +
+    stats.intelligence +
+    stats.agility +
+    stats.magicResistance
+  );
 }
 
 export function getDominantStat(stats: Stats) {
@@ -81,7 +88,9 @@ export function getDominantStat(stats: Stats) {
     { key: "Strength", value: stats.strength },
     { key: "Vitality", value: stats.vitality },
     { key: "Discipline", value: stats.discipline },
-    { key: "Focus", value: stats.focus },
+    { key: "Intelligence", value: stats.intelligence },
+    { key: "Agility", value: stats.agility },
+    { key: "Magic Resistance", value: stats.magicResistance },
   ] as const;
 
   const max = Math.max(...entries.map((entry) => entry.value));
@@ -98,3 +107,4 @@ export function getCompletionRate(completed: number, total: number) {
   if (total <= 0) return 0;
   return Math.round((completed / total) * 100);
 }
+

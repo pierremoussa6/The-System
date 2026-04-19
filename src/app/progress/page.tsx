@@ -23,10 +23,23 @@ import { calculateLevel, getBuildFromStats } from "../logic";
 import { getSystemRank, getRankLabel } from "../rank-system";
 import type { HistoryEntry, Stats } from "../types";
 
-type StatKey = "strength" | "vitality" | "discipline" | "focus";
+type StatKey =
+  | "strength"
+  | "vitality"
+  | "discipline"
+  | "intelligence"
+  | "agility"
+  | "magicResistance";
 
 const chartFillStyle = { width: "100%", height: "100%" };
-const statKeys: StatKey[] = ["strength", "vitality", "discipline", "focus"];
+const statKeys: StatKey[] = [
+  "strength",
+  "vitality",
+  "discipline",
+  "intelligence",
+  "agility",
+  "magicResistance",
+];
 
 function formatShortDate(dateString: string) {
   const date = new Date(dateString);
@@ -65,7 +78,9 @@ function createCurrentHistoryEntry(stats: Stats): HistoryEntry {
     strength: stats.strength,
     vitality: stats.vitality,
     discipline: stats.discipline,
-    focus: stats.focus,
+    intelligence: stats.intelligence,
+    agility: stats.agility,
+    magicResistance: stats.magicResistance,
   };
 }
 
@@ -76,18 +91,28 @@ function hasMatchingStats(entry: HistoryEntry | undefined, stats: Stats) {
 }
 
 function getDisplayHistory(history: HistoryEntry[], stats: Stats) {
+  const normalizedHistory = history.map((entry) => {
+    const legacyEntry = entry as HistoryEntry & { focus?: number };
+
+    return {
+      ...entry,
+      intelligence: entry.intelligence ?? legacyEntry.focus ?? 0,
+      agility: entry.agility ?? 0,
+      magicResistance: entry.magicResistance ?? 0,
+    };
+  });
   const currentEntry = createCurrentHistoryEntry(stats);
-  const lastEntry = history[history.length - 1];
+  const lastEntry = normalizedHistory[normalizedHistory.length - 1];
 
   if (hasMatchingStats(lastEntry, stats)) {
-    return history;
+    return normalizedHistory;
   }
 
   if (lastEntry?.date === currentEntry.date) {
-    return [...history.slice(0, -1), currentEntry];
+    return [...normalizedHistory.slice(0, -1), currentEntry];
   }
 
-  return [...history, currentEntry];
+  return [...normalizedHistory, currentEntry];
 }
 
 function getRadarMax(stats: Stats) {
@@ -139,7 +164,9 @@ export default function ProgressPage() {
       { stat: "Strength", value: stats.strength },
       { stat: "Vitality", value: stats.vitality },
       { stat: "Discipline", value: stats.discipline },
-      { stat: "Focus", value: stats.focus },
+      { stat: "Intelligence", value: stats.intelligence },
+      { stat: "Agility", value: stats.agility },
+      { stat: "Magic Resistance", value: stats.magicResistance },
     ],
     [stats]
   );
@@ -154,7 +181,9 @@ export default function ProgressPage() {
       strength: entry.strength,
       vitality: entry.vitality,
       discipline: entry.discipline,
-      focus: entry.focus,
+      intelligence: entry.intelligence,
+      agility: entry.agility,
+      magicResistance: entry.magicResistance,
     }));
   }, [displayHistory]);
 
@@ -217,7 +246,7 @@ export default function ProgressPage() {
         />
 
         {hasEnoughHistory ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
               <p className="text-sm uppercase tracking-wide text-zinc-400">
                 Strength
@@ -250,11 +279,31 @@ export default function ProgressPage() {
 
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
               <p className="text-sm uppercase tracking-wide text-zinc-400">
-                Focus
+                Intelligence
               </p>
               <p className="mt-2 text-xl font-semibold text-white">
-                {getChange("focus") >= 0 ? "+" : ""}
-                {getChange("focus")}
+                {getChange("intelligence") >= 0 ? "+" : ""}
+                {getChange("intelligence")}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+              <p className="text-sm uppercase tracking-wide text-zinc-400">
+                Agility
+              </p>
+              <p className="mt-2 text-xl font-semibold text-white">
+                {getChange("agility") >= 0 ? "+" : ""}
+                {getChange("agility")}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+              <p className="text-sm uppercase tracking-wide text-zinc-400">
+                Magic Resistance
+              </p>
+              <p className="mt-2 text-xl font-semibold text-white">
+                {getChange("magicResistance") >= 0 ? "+" : ""}
+                {getChange("magicResistance")}
               </p>
             </div>
           </div>
@@ -318,7 +367,7 @@ export default function ProgressPage() {
             </RadarChart>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
             {radarData.map((item) => (
               <div
                 key={item.stat}
@@ -405,9 +454,27 @@ export default function ProgressPage() {
             />
             <Line
               type="monotone"
-              dataKey="focus"
-              name="Focus"
+              dataKey="intelligence"
+              name="Intelligence"
               stroke="#3b82f6"
+              strokeWidth={3}
+              dot={{ r: 4 }}
+              activeDot={{ r: 6 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="agility"
+              name="Agility"
+              stroke="#06b6d4"
+              strokeWidth={3}
+              dot={{ r: 4 }}
+              activeDot={{ r: 6 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="magicResistance"
+              name="Magic Resistance"
+              stroke="#a855f7"
               strokeWidth={3}
               dot={{ r: 4 }}
               activeDot={{ r: 6 }}
@@ -420,8 +487,11 @@ export default function ProgressPage() {
         <StatCard label="Strength" value={stats.strength} />
         <StatCard label="Vitality" value={stats.vitality} />
         <StatCard label="Discipline" value={stats.discipline} />
-        <StatCard label="Focus" value={stats.focus} />
+        <StatCard label="Intelligence" value={stats.intelligence} />
+        <StatCard label="Agility" value={stats.agility} />
+        <StatCard label="Magic Resistance" value={stats.magicResistance} />
       </div>
     </div>
   );
 }
+

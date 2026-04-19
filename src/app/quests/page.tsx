@@ -21,6 +21,8 @@ export default function QuestsPage() {
     clearPenaltyNotice,
     toggleQuest,
     profile,
+    dailyHp,
+    updateDailyHp,
   } = useApp();
 
   if (!isLoaded || !specialQuest || !profile) {
@@ -39,26 +41,58 @@ export default function QuestsPage() {
 
   const completedCount = quests.filter((quest) => quest.completed).length;
   const allCompleted = quests.length > 0 && quests.every((q) => q.completed);
+  const recoveryModeActive = typeof dailyHp === "number" && dailyHp < 50;
 
   function getQuestRewardText(questId: number) {
     const quest = quests.find((q) => q.id === questId);
-    const xp = quest?.xp ?? 0;
+    if (!quest) return "";
 
-    switch (questId) {
-      case 1:
-        return `+${xp} XP • +2 Strength`;
-      case 2:
-        return `+${xp} XP • +2 Vitality`;
-      case 3:
-        return `+${xp} XP • +1 Vitality`;
-      default:
-        return "";
-    }
+    const statText = Object.entries(quest.statRewards ?? {})
+      .filter(([, value]) => typeof value === "number" && value > 0)
+      .map(([key, value]) => {
+        const label =
+          key === "magicResistance"
+            ? "Magic Resistance"
+            : key.charAt(0).toUpperCase() + key.slice(1);
+
+        return `+${value} ${label}`;
+      })
+      .join(" / ");
+
+    return statText ? `+${quest.xp} XP / ${statText}` : `+${quest.xp} XP`;
   }
-
   return (
     <div className="space-y-6">
       <h1 className="text-3xl text-blue-400">Quests</h1>
+
+      <PanelCard className={recoveryModeActive ? "border-emerald-500" : "border-cyan-500"}>
+        <SectionTitle title="Daily HP Check" colorClass="text-cyan-400" />
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_120px]">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={dailyHp ?? 75}
+              onChange={(event) => updateDailyHp(Number(event.target.value))}
+            />
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={dailyHp ?? ""}
+              onChange={(event) => updateDailyHp(Number(event.target.value))}
+              className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+              placeholder="HP"
+            />
+          </div>
+          {recoveryModeActive && (
+            <p className="rounded border border-emerald-500/30 bg-emerald-500/10 p-3 text-emerald-200">
+              HP below 50. Focus on recovery and the daily quests. The special quest is cancelled for today.
+            </p>
+          )}
+        </div>
+      </PanelCard>
 
       {penaltyNotice && (
         <PanelCard className="border-red-500">
@@ -225,8 +259,12 @@ export default function QuestsPage() {
         <StatCard label="Strength" value="Tracks via quests" />
         <StatCard label="Vitality" value="Tracks via quests" />
         <StatCard label="Discipline" value="Boosted by consistency" />
-        <StatCard label="Focus" value="Boosted by special quests" />
+        <StatCard label="Intelligence" value="Study and strategy quests" />
+        <StatCard label="Agility" value="Cardio and movement quests" />
+        <StatCard label="Magic Resistance" value="Nutrition protocol quests" />
       </div>
     </div>
   );
 }
+
+

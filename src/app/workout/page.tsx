@@ -96,7 +96,9 @@ export default function WorkoutPage() {
           <StatCard label="Strength" value={stats.strength} />
           <StatCard label="Vitality" value={stats.vitality} />
           <StatCard label="Discipline" value={stats.discipline} />
-          <StatCard label="Focus" value={stats.focus} />
+          <StatCard label="Intelligence" value={stats.intelligence} />
+          <StatCard label="Agility" value={stats.agility} />
+          <StatCard label="Magic Resistance" value={stats.magicResistance} />
         </div>
       </PanelCard>
 
@@ -185,3 +187,4 @@ export default function WorkoutPage() {
     </div>
   );
 }
+

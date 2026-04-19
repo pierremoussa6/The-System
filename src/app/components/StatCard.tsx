@@ -21,8 +21,16 @@ function getStatAccent(label: string) {
     return "border-yellow-500/40 bg-yellow-500/10 text-yellow-300";
   }
 
-  if (lower.includes("focus")) {
+  if (lower.includes("intelligence")) {
     return "border-cyan-500/40 bg-cyan-500/10 text-cyan-300";
+  }
+
+  if (lower.includes("agility")) {
+    return "border-sky-500/40 bg-sky-500/10 text-sky-300";
+  }
+
+  if (lower.includes("magic")) {
+    return "border-violet-500/40 bg-violet-500/10 text-violet-300";
   }
 
   return "border-zinc-700 bg-zinc-900 text-zinc-200";

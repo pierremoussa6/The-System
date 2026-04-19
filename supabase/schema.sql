@@ -20,6 +20,11 @@ create table if not exists public.user_state (
   vitality integer not null default 0,
   discipline integer not null default 0,
   focus integer not null default 0,
+  intelligence integer not null default 0,
+  agility integer not null default 0,
+  magic_resistance integer not null default 0,
+  daily_hp integer,
+  daily_hp_date date,
   ai_analysis_json jsonb,
   ai_weekly_plan_json jsonb,
   ai_quest_index integer not null default 0,
@@ -30,6 +35,21 @@ create table if not exists public.user_state (
 
 alter table public.user_state
 add column if not exists app_state_json jsonb;
+
+alter table public.user_state
+add column if not exists intelligence integer not null default 0;
+
+alter table public.user_state
+add column if not exists agility integer not null default 0;
+
+alter table public.user_state
+add column if not exists magic_resistance integer not null default 0;
+
+alter table public.user_state
+add column if not exists daily_hp integer;
+
+alter table public.user_state
+add column if not exists daily_hp_date date;
 
 create table if not exists public.daily_quests (
   id uuid primary key default gen_random_uuid(),

@@ -242,7 +242,7 @@ const analysisSchema = {
     },
     primaryFocus: {
       type: "string",
-      enum: ["Fitness", "Discipline", "Focus", "Lifestyle", "Balanced"],
+      enum: ["Fitness", "Discipline", "Intelligence", "Lifestyle", "Balanced"],
     },
     dietDirection: { type: "string" },
     workoutDirection: { type: "string" },
@@ -266,9 +266,18 @@ const analysisSchema = {
               strength: { type: ["number", "null"] },
               vitality: { type: ["number", "null"] },
               discipline: { type: ["number", "null"] },
-              focus: { type: ["number", "null"] },
+              intelligence: { type: ["number", "null"] },
+              agility: { type: ["number", "null"] },
+              magicResistance: { type: ["number", "null"] },
             },
-            required: ["strength", "vitality", "discipline", "focus"],
+            required: [
+              "strength",
+              "vitality",
+              "discipline",
+              "intelligence",
+              "agility",
+              "magicResistance",
+            ],
           },
           penalty: { type: "string" },
           penaltyAction: {
@@ -344,7 +353,9 @@ type RawStatRewards = {
   strength: number | null;
   vitality: number | null;
   discipline: number | null;
-  focus: number | null;
+  intelligence: number | null;
+  agility: number | null;
+  magicResistance: number | null;
 };
 
 type RawAnalysis = Omit<AiSystemAnalysis, "specialQuests" | "personalization"> & {
@@ -397,7 +408,11 @@ Special quest rules:
 - Match quest difficulty and XP to available time, stress, fitness level, and chosen difficulty.
 - Avoid repeating the same title structure or action pattern.
 - XP should usually be between 18 and 65.
-- For statRewards, always include all 4 keys: strength, vitality, discipline, focus. Use null for unrewarded stats.
+- For statRewards, always include all 6 keys: strength, vitality, discipline, intelligence, agility, magicResistance. Use null for unrewarded stats.
+- Intelligence replaces the old Focus attribute and should reward learning, planning, programming, study, strategy, and problem solving.
+- Agility should reward running, walking, hiking, mobility, conditioning, and speed/cardio work.
+- Magic Resistance should reward following the diet protocol, healthy meals, protein, vitamins, minerals, and other nutrition fundamentals.
+- Vitality should reward hydration, recovery, sleep, and general energy; drinking 2L water is the main daily Vitality anchor.
 - Penalties are corrective side quests, not shame. They must match penaltyStyle and never be humiliating, unsafe, medically risky, or financially harmful.
 - penaltyAction must be specific, measurable, and useful for self-development. Prefer actions such as learning repair, savings transfer, environment reset, walk/mobility, meal prep, focused reflection, service/helping action, Main Job repair, or Secondary Job practice.
 - Financial penalties must be framed as voluntary savings/accountability, never spending or donating under pressure. Use SEK. Only use amounts that fit the user's profile and penaltyStyle: Light 50-100 SEK, Moderate 100-300 SEK, Strict 300-1000 SEK. If uncertain, choose a non-financial penalty.
@@ -526,7 +541,13 @@ function sanitizeStatRewards(rewards: RawStatRewards): Partial<Stats> {
   if (typeof rewards.strength === "number") cleaned.strength = rewards.strength;
   if (typeof rewards.vitality === "number") cleaned.vitality = rewards.vitality;
   if (typeof rewards.discipline === "number") cleaned.discipline = rewards.discipline;
-  if (typeof rewards.focus === "number") cleaned.focus = rewards.focus;
+  if (typeof rewards.intelligence === "number") {
+    cleaned.intelligence = rewards.intelligence;
+  }
+  if (typeof rewards.agility === "number") cleaned.agility = rewards.agility;
+  if (typeof rewards.magicResistance === "number") {
+    cleaned.magicResistance = rewards.magicResistance;
+  }
 
   return cleaned;
 }
@@ -725,3 +746,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

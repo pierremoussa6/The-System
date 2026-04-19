@@ -365,7 +365,7 @@ function ProfileForm({
 
       {step === 3 && (
         <PanelCard>
-          <h2 className="text-xl text-white">Focus and Personalization</h2>
+          <h2 className="text-xl text-white">Intelligence and Personalization</h2>
 
           <div className="space-y-4">
             <div>
@@ -383,7 +383,7 @@ function ProfileForm({
                 <option value="Balanced">Balanced</option>
                 <option value="Fitness">Fitness</option>
                 <option value="Discipline">Discipline</option>
-                <option value="Focus">Focus</option>
+                <option value="Intelligence">Intelligence</option>
                 <option value="Lifestyle">Lifestyle</option>
               </select>
             </div>
@@ -741,3 +741,4 @@ export default function ProfileSetupPage() {
     </div>
   );
 }
+

@@ -170,7 +170,7 @@ function OnboardingForm({ initialProfile, onSave }: OnboardingFormProps) {
                 e.target.value as
                   | "Fitness"
                   | "Discipline"
-                  | "Focus"
+                  | "Intelligence"
                   | "Lifestyle"
                   | "Balanced"
               )
@@ -179,7 +179,7 @@ function OnboardingForm({ initialProfile, onSave }: OnboardingFormProps) {
             <option value="Balanced">Balanced</option>
             <option value="Fitness">Fitness</option>
             <option value="Discipline">Discipline</option>
-            <option value="Focus">Focus</option>
+            <option value="Intelligence">Intelligence</option>
             <option value="Lifestyle">Lifestyle</option>
           </select>
         </div>
@@ -304,3 +304,4 @@ export default function OnboardingPage() {
     </div>
   );
 }
+

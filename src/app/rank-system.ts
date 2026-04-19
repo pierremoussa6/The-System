@@ -11,7 +11,14 @@ export type SystemRank =
   | "Monarch";
 
 export function getTotalStatPoints(stats: Stats) {
-  return stats.strength + stats.vitality + stats.discipline + stats.focus;
+  return (
+    stats.strength +
+    stats.vitality +
+    stats.discipline +
+    stats.intelligence +
+    stats.agility +
+    stats.magicResistance
+  );
 }
 
 export function getRankScore(totalXp: number, stats: Stats) {
@@ -160,3 +167,4 @@ export function getRankProgress(totalXp: number, stats: Stats) {
     remainingStats: Math.max(0, requiredStats - totalStats),
   };
 }
+

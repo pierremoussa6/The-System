@@ -12,7 +12,14 @@ export type Achievement = {
 };
 
 function getTotalStatPoints(stats: Stats) {
-  return stats.strength + stats.vitality + stats.discipline + stats.focus;
+  return (
+    stats.strength +
+    stats.vitality +
+    stats.discipline +
+    stats.intelligence +
+    stats.agility +
+    stats.magicResistance
+  );
 }
 
 function hasCompletedAnyDailyQuest(user: UserRecord) {
@@ -32,7 +39,9 @@ function hasAllStatsAtLeast(stats: Stats, min: number) {
     stats.strength >= min &&
     stats.vitality >= min &&
     stats.discipline >= min &&
-    stats.focus >= min
+    stats.intelligence >= min &&
+    stats.agility >= min &&
+    stats.magicResistance >= min
   );
 }
 
@@ -41,7 +50,9 @@ function isBalancedBuild(stats: Stats, maxSpread = 2) {
     stats.strength,
     stats.vitality,
     stats.discipline,
-    stats.focus,
+    stats.intelligence,
+    stats.agility,
+    stats.magicResistance,
   ];
 
   return Math.max(...values) - Math.min(...values) <= maxSpread;
@@ -219,3 +230,4 @@ export function getAchievementTierClasses(tier: AchievementTier) {
       };
   }
 }
+

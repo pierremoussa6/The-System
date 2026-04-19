@@ -19,6 +19,7 @@ import {
   getNextAiQuestIndex,
   getTodayString,
   createNewUserRecord,
+  normalizeStats,
   normalizeSpecialQuestMemory,
   normalizeUserForToday,
 } from "../quest-engine";
@@ -42,6 +43,9 @@ type RemoteUserState = {
   vitality: number;
   discipline: number;
   focus: number;
+  intelligence: number;
+  agility: number;
+  magicResistance: number;
   app_state_json: UserRecord | null;
   updated_at: string;
 };
@@ -56,7 +60,9 @@ type EditableStateField =
   | "strength"
   | "vitality"
   | "discipline"
-  | "focus";
+  | "intelligence"
+  | "agility"
+  | "magicResistance";
 
 const editableStateFields: { key: EditableStateField; label: string }[] = [
   { key: "total_xp", label: "XP" },
@@ -64,7 +70,9 @@ const editableStateFields: { key: EditableStateField; label: string }[] = [
   { key: "strength", label: "Strength" },
   { key: "vitality", label: "Vitality" },
   { key: "discipline", label: "Discipline" },
-  { key: "focus", label: "Focus" },
+  { key: "intelligence", label: "Intelligence" },
+  { key: "agility", label: "Agility" },
+  { key: "magicResistance", label: "Magic Resistance" },
 ];
 
 const primaryCreatorEmail = "pierremoussa6@gmail.com";
@@ -75,20 +83,26 @@ function toSafeNumber(value: number) {
 }
 
 function getEditableState(account: RemoteAccount): RemoteUserState {
-  return (
-    account.state ?? {
-      user_id: account.id,
-      total_xp: 0,
-      streak: 0,
-      last_completion_date: null,
-      strength: 0,
-      vitality: 0,
-      discipline: 0,
-      focus: 0,
-      app_state_json: null,
-      updated_at: new Date().toISOString(),
-    }
-  );
+  const baseState = account.state ?? {
+    user_id: account.id,
+    total_xp: 0,
+    streak: 0,
+    last_completion_date: null,
+    strength: 0,
+    vitality: 0,
+    discipline: 0,
+    focus: 0,
+    app_state_json: null,
+    updated_at: new Date().toISOString(),
+  };
+  const appStats = normalizeStats(baseState.app_state_json?.stats ?? null);
+
+  return {
+    ...baseState,
+    intelligence: appStats.intelligence || baseState.focus,
+    agility: appStats.agility,
+    magicResistance: appStats.magicResistance,
+  };
 }
 
 function getStateValue(account: RemoteAccount, key: EditableStateField) {
@@ -115,13 +129,17 @@ function createRemoteAppState(account: RemoteAccount, state: RemoteUserState) {
       strength: state.strength,
       vitality: state.vitality,
       discipline: state.discipline,
-      focus: state.focus,
+      intelligence: state.intelligence,
+      agility: state.agility,
+      magicResistance: state.magicResistance,
     },
     history: appendHistoryEntry(baseRecord.history, {
       strength: state.strength,
       vitality: state.vitality,
       discipline: state.discipline,
-      focus: state.focus,
+      intelligence: state.intelligence,
+      agility: state.agility,
+      magicResistance: state.magicResistance,
     }),
     profile: {
       ...baseRecord.profile,
@@ -314,7 +332,7 @@ export default function UsersPage() {
         strength: nextAppState.stats.strength,
         vitality: nextAppState.stats.vitality,
         discipline: nextAppState.stats.discipline,
-        focus: nextAppState.stats.focus,
+        focus: nextAppState.stats.intelligence,
         app_state_json: nextAppState,
         updated_at: new Date().toISOString(),
       },
@@ -412,7 +430,8 @@ export default function UsersPage() {
       details:
         `Creator support updated XP to ${appState.totalXp}, streak to ${appState.streak}, ` +
         `and stats to STR ${appState.stats.strength}, VIT ${appState.stats.vitality}, ` +
-        `DIS ${appState.stats.discipline}, FOC ${appState.stats.focus}.`,
+        `DIS ${appState.stats.discipline}, INT ${appState.stats.intelligence}, ` +
+        `AGI ${appState.stats.agility}, MR ${appState.stats.magicResistance}.`,
     });
   }
 
@@ -430,7 +449,7 @@ export default function UsersPage() {
     );
     const nextState: UserRecord = {
       ...appState,
-      quests: createDailyQuests(appState.profile),
+      quests: createDailyQuests(appState.profile, getTodayString()),
       specialQuest: nextSpecialQuest,
       specialQuestMemory: appendSpecialQuestMemory(
         specialQuestMemory,
@@ -540,14 +559,15 @@ export default function UsersPage() {
         ) : (
           <div className="space-y-4">
             {remoteAccounts.map((account) => {
-              const stats = account.state
-                ? {
-                    strength: account.state.strength,
-                    vitality: account.state.vitality,
-                    discipline: account.state.discipline,
-                    focus: account.state.focus,
-                  }
-                : { strength: 0, vitality: 0, discipline: 0, focus: 0 };
+              const editableState = getEditableState(account);
+              const stats = normalizeStats({
+                strength: editableState.strength,
+                vitality: editableState.vitality,
+                discipline: editableState.discipline,
+                intelligence: editableState.intelligence,
+                agility: editableState.agility,
+                magicResistance: editableState.magicResistance,
+              });
               const rank = getSystemRank(account.state?.total_xp ?? 0, stats);
               const accountAppState = getAccountAppState(account);
               const completedQuestCount = accountAppState.quests.filter(
@@ -867,3 +887,4 @@ export default function UsersPage() {
     </div>
   );
 }
+

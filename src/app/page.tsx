@@ -35,6 +35,7 @@ export default function HomePage() {
     aiWeeklyPlan,
     artifacts,
     activeEffects,
+    dailyHp,
   } = useApp();
 
   const achievementSummary = useMemo(() => {
@@ -99,6 +100,7 @@ export default function HomePage() {
     ? aiAnalysis.playerSummary
     : "No system analysis has been generated yet.";
   const personalization = aiAnalysis ? getPersonalization(aiAnalysis, profile) : null;
+  const recoveryModeActive = typeof dailyHp === "number" && dailyHp < 50;
 
   return (
     <main className="space-y-6">
@@ -186,6 +188,21 @@ export default function HomePage() {
                 <p className="mt-2 text-2xl font-semibold text-orange-400">
                   🔥 {streak} day(s)
                 </p>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+                <p className="text-sm uppercase tracking-wide text-zinc-400">
+                  HP Today
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {dailyHp ?? "Unset"}
+                  {typeof dailyHp === "number" ? " / 100" : ""}
+                </p>
+                {recoveryModeActive && (
+                  <p className="mt-2 text-sm text-emerald-300">
+                    Recovery mode active. Special quest cancelled.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -319,7 +336,9 @@ export default function HomePage() {
               <StatCard label="Strength" value={stats.strength} />
               <StatCard label="Vitality" value={stats.vitality} />
               <StatCard label="Discipline" value={stats.discipline} />
-              <StatCard label="Focus" value={stats.focus} />
+              <StatCard label="Intelligence" value={stats.intelligence} />
+              <StatCard label="Agility" value={stats.agility} />
+              <StatCard label="Magic Resistance" value={stats.magicResistance} />
             </div>
           </PanelCard>
         </div>
@@ -487,3 +506,4 @@ export default function HomePage() {
     </main>
   );
 }
+
