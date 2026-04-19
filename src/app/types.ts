@@ -142,6 +142,14 @@ export type QuestSource =
 
 export type QuestJobFocus = "Main Job" | "Secondary Job" | "Hybrid" | "None";
 
+export type QuestRotationPreference =
+  | "Balanced"
+  | "Main Job"
+  | "Secondary Job"
+  | "Fitness"
+  | "Diet"
+  | "Hybrid";
+
 export type JobProfile = {
   title: string;
   archetype: string;
@@ -247,6 +255,10 @@ export type UserProfile = {
   profession: string;
   hobbies: string;
   customInterests: string;
+  mainJobOverride: string;
+  secondaryJobOverride: string;
+  rpgIdentityNotes: string;
+  questRotationPreference: QuestRotationPreference;
 
   ageRange: "Under 18" | "18-24" | "25-34" | "35-44" | "45+";
   motivationStyle: MotivationStyle;
@@ -340,6 +352,13 @@ export type UserRecord = {
   artifacts: Artifact[];
   activeEffects: ActiveEffects;
   lastResetDate: string;
+  specialQuestMemory?: SpecialQuestMemory;
+};
+
+export type SpecialQuestMemory = {
+  recentTitles: string[];
+  recentSources: QuestSource[];
+  recentJobFocuses: QuestJobFocus[];
 };
 
 export type MultiUserData = {

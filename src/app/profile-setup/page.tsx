@@ -81,7 +81,7 @@ function ProfileForm({
     <div className="space-y-6">
       <PanelCard className="border-cyan-500">
         <div className="flex flex-wrap gap-2">
-          {[1, 2, 3, 4].map((item) => (
+          {[1, 2, 3, 4, 5].map((item) => (
             <button
               key={item}
               onClick={() => setStep(item)}
@@ -574,6 +574,84 @@ function ProfileForm({
         </PanelCard>
       )}
 
+      {step === 5 && (
+        <PanelCard className="border-purple-500">
+          <h2 className="text-xl text-white">RPG Identity Editor</h2>
+          <p className="text-sm text-zinc-400">
+            Override the AI jobs when you want the character identity to be more exact.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="mb-2 block text-zinc-400">
+                Main Job Override
+              </label>
+              <input
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.mainJobOverride}
+                onChange={(e) => updateField("mainJobOverride", e.target.value)}
+                placeholder="Engineer, Developer, Student, Coach..."
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                Leave empty to let AI infer it from your profession.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-zinc-400">
+                Secondary Job Override
+              </label>
+              <input
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.secondaryJobOverride}
+                onChange={(e) =>
+                  updateField("secondaryJobOverride", e.target.value)
+                }
+                placeholder="Thief, Hacker, Warrior, Bard, Scholar..."
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                This is your playful hobby identity.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-zinc-400">
+                Special Quest Rotation
+              </label>
+              <select
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.questRotationPreference}
+                onChange={(e) =>
+                  updateField(
+                    "questRotationPreference",
+                    e.target.value as UserProfile["questRotationPreference"]
+                  )
+                }
+              >
+                <option value="Balanced">Balanced</option>
+                <option value="Main Job">Main Job priority</option>
+                <option value="Secondary Job">Secondary Job priority</option>
+                <option value="Fitness">Fitness priority</option>
+                <option value="Diet">Diet priority</option>
+                <option value="Hybrid">Hybrid priority</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-zinc-400">
+                Identity Notes
+              </label>
+              <textarea
+                className="min-h-24 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.rpgIdentityNotes}
+                onChange={(e) => updateField("rpgIdentityNotes", e.target.value)}
+                placeholder="Example: I want my secondary identity to feel stealthy, technical, and disciplined."
+              />
+            </div>
+          </div>
+        </PanelCard>
+      )}
+
       <PanelCard className="border-blue-500">
         <div className="flex flex-wrap gap-3">
           {step > 1 && (
@@ -582,7 +660,7 @@ function ProfileForm({
             </ActionButton>
           )}
 
-          {step < 4 && (
+          {step < 5 && (
             <ActionButton onClick={() => setStep((current) => current + 1)} variant="blue">
               Next
             </ActionButton>

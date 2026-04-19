@@ -13,6 +13,8 @@ import type {
   QuestJobFocus,
   QuestSource,
   Quest,
+  QuestRotationPreference,
+  SpecialQuestMemory,
   SpecialQuest,
   SpecialQuestTemplate,
   Stats,
@@ -41,6 +43,10 @@ export const defaultProfile: UserProfile = {
   profession: "",
   hobbies: "",
   customInterests: "",
+  mainJobOverride: "",
+  secondaryJobOverride: "",
+  rpgIdentityNotes: "",
+  questRotationPreference: "Balanced",
 
   ageRange: "25-34",
   motivationStyle: "Balance",
@@ -248,6 +254,18 @@ export const interestCategoryLabels: Record<InterestCategory, string> = {
   other: "Other",
 };
 
+export const questRotationPreferenceLabels: Record<
+  QuestRotationPreference,
+  string
+> = {
+  Balanced: "Balanced Rotation",
+  "Main Job": "Main Job Priority",
+  "Secondary Job": "Secondary Job Priority",
+  Fitness: "Fitness Priority",
+  Diet: "Diet Priority",
+  Hybrid: "Hybrid Priority",
+};
+
 const studyInterestToCategory: Partial<
   Record<UserProfile["studyInterest"], InterestCategory>
 > = {
@@ -342,7 +360,7 @@ export function getPersonalization(
   profile: UserProfile
 ): OnboardingAnalysisResult {
   if (aiAnalysis?.personalization) {
-    return aiAnalysis.personalization;
+    return applyIdentityOverrides(aiAnalysis.personalization, profile);
   }
 
   const categories: InterestCategory[] = [];
@@ -363,7 +381,7 @@ export function getPersonalization(
   const hobbies = splitListText(profile.hobbies);
   const interests = splitListText(profile.customInterests);
 
-  return {
+  return applyIdentityOverrides({
     primaryGoals: [profile.goal || "Build a stronger daily system"],
     explicitInterests: [
       profile.studyInterest !== "None" ? profile.studyInterest : "",
@@ -433,6 +451,40 @@ export function getPersonalization(
       `${profile.stressLevel} stress`,
       `${profile.sleepQuality} sleep quality`,
     ],
+  }, profile);
+}
+
+function applyIdentityOverrides(
+  personalization: OnboardingAnalysisResult,
+  profile: UserProfile
+): OnboardingAnalysisResult {
+  const mainJobOverride = profile.mainJobOverride.trim();
+  const secondaryJobOverride = profile.secondaryJobOverride.trim();
+  const identityNotes = profile.rpgIdentityNotes.trim();
+
+  if (!mainJobOverride && !secondaryJobOverride && !identityNotes) {
+    return personalization;
+  }
+
+  return {
+    ...personalization,
+    mainJob: {
+      ...personalization.mainJob,
+      title: mainJobOverride || personalization.mainJob.title,
+      rationale: mainJobOverride
+        ? `Player-selected Main Job. ${personalization.mainJob.rationale}`
+        : personalization.mainJob.rationale,
+    },
+    secondaryJob: {
+      ...personalization.secondaryJob,
+      title: secondaryJobOverride || personalization.secondaryJob.title,
+      rationale: secondaryJobOverride
+        ? `Player-selected Secondary Job. ${personalization.secondaryJob.rationale}`
+        : personalization.secondaryJob.rationale,
+    },
+    lifestyleNotes: identityNotes
+      ? [...personalization.lifestyleNotes, `Identity note: ${identityNotes}`]
+      : personalization.lifestyleNotes,
   };
 }
 
@@ -557,6 +609,143 @@ function createPersonalizedQuestTemplates(
       categories,
     }),
   ];
+}
+
+export function normalizeSpecialQuestMemory(
+  memory?: SpecialQuestMemory | null
+): SpecialQuestMemory {
+  return {
+    recentTitles: Array.isArray(memory?.recentTitles)
+      ? memory.recentTitles.slice(0, 12)
+      : [],
+    recentSources: Array.isArray(memory?.recentSources)
+      ? memory.recentSources.slice(0, 12)
+      : [],
+    recentJobFocuses: Array.isArray(memory?.recentJobFocuses)
+      ? memory.recentJobFocuses.slice(0, 12)
+      : [],
+  };
+}
+
+function inferQuestSource(quest: SpecialQuestTemplate): QuestSource {
+  if (quest.source) return quest.source;
+  if (quest.tags.includes("fitness")) return "workout";
+  if (quest.tags.includes("diet") || quest.tags.includes("nutrition")) {
+    return "diet";
+  }
+  if (quest.tags.includes("recovery") || quest.tags.includes("sleep")) {
+    return "recovery";
+  }
+  if (quest.tags.includes("discipline")) return "discipline";
+  if (
+    quest.tags.includes("study") ||
+    quest.tags.includes("programming") ||
+    quest.tags.includes("reading") ||
+    quest.tags.includes("language") ||
+    quest.tags.includes("chess")
+  ) {
+    return "interest";
+  }
+  return "interest";
+}
+
+function getQuestJobFocus(quest: SpecialQuestTemplate): QuestJobFocus {
+  return quest.jobFocus ?? "None";
+}
+
+function getPreferredSources(
+  profile: UserProfile,
+  memory: SpecialQuestMemory,
+  pool: SpecialQuestTemplate[]
+): QuestSource[] {
+  const preference = profile.questRotationPreference;
+
+  if (preference === "Main Job") return ["main_job"];
+  if (preference === "Secondary Job") return ["secondary_job"];
+  if (preference === "Fitness") return ["workout"];
+  if (preference === "Diet") return ["diet"];
+  if (preference === "Hybrid") return ["hybrid"];
+
+  const rotationOrder: QuestSource[] = [
+    "main_job",
+    "secondary_job",
+    "hybrid",
+    "workout",
+    "diet",
+    "interest",
+    "discipline",
+    "recovery",
+  ];
+
+  const availableSources = new Set(pool.map((quest) => inferQuestSource(quest)));
+  const sourceCounts = rotationOrder.map((source) => ({
+    source,
+    count: memory.recentSources.filter((item) => item === source).length,
+  }));
+
+  return sourceCounts
+    .filter((item) => availableSources.has(item.source))
+    .sort((a, b) => a.count - b.count)
+    .map((item) => item.source);
+}
+
+function selectQuestTemplateForRotation(
+  pool: SpecialQuestTemplate[],
+  profile: UserProfile,
+  memory?: SpecialQuestMemory | null,
+  seed = 0
+): SpecialQuestTemplate {
+  const safeMemory = normalizeSpecialQuestMemory(memory);
+  const recentTitles = new Set(
+    safeMemory.recentTitles.map((title) => title.trim().toLowerCase())
+  );
+  const preferredSources = getPreferredSources(profile, safeMemory, pool);
+  const primaryPreferredSource = preferredSources[0];
+  const fallback = pool[Math.abs(seed) % pool.length];
+
+  const ranked = pool
+    .map((quest, index) => {
+      const source = inferQuestSource(quest);
+      const jobFocus = getQuestJobFocus(quest);
+      let score = 0;
+
+      if (!recentTitles.has(quest.title.trim().toLowerCase())) score += 80;
+      if (source === primaryPreferredSource) score += 45;
+      if (preferredSources.includes(source)) score += 20;
+      if (!safeMemory.recentSources.slice(0, 3).includes(source)) score += 15;
+      if (!safeMemory.recentJobFocuses.slice(0, 3).includes(jobFocus)) score += 10;
+      if (quest.jobFocus === profile.questRotationPreference) score += 15;
+
+      return {
+        quest,
+        score,
+        stableTieBreaker: Math.abs(seed + index * 17) % 97,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.score - a.score || a.stableTieBreaker - b.stableTieBreaker
+    );
+
+  return ranked[0]?.quest ?? fallback;
+}
+
+export function appendSpecialQuestMemory(
+  memory: SpecialQuestMemory | null | undefined,
+  quest: SpecialQuestTemplate
+): SpecialQuestMemory {
+  const safeMemory = normalizeSpecialQuestMemory(memory);
+  const source = inferQuestSource(quest);
+  const jobFocus = getQuestJobFocus(quest);
+
+  return {
+    recentTitles: [
+      quest.title,
+      ...safeMemory.recentTitles.filter((title) => title !== quest.title),
+    ].slice(0, 12),
+    recentSources: [source, ...safeMemory.recentSources].slice(0, 12),
+    recentJobFocuses: [jobFocus, ...safeMemory.recentJobFocuses].slice(0, 12),
+  };
 }
 
 export function getTodayString() {
@@ -757,7 +946,8 @@ export function createDailySpecialQuest(
   dateString: string,
   stats: Stats,
   profile: UserProfile,
-  aiAnalysis?: AiSystemAnalysis | null
+  aiAnalysis?: AiSystemAnalysis | null,
+  memory?: SpecialQuestMemory | null
 ): SpecialQuest {
   const poolToUse = filterQuestPoolForProfile(stats, profile, aiAnalysis);
 
@@ -776,8 +966,12 @@ export function createDailySpecialQuest(
   }
 
   const dayNumber = getDayNumberFromDate(dateString);
-  const safeIndex = Math.abs(dayNumber) % poolToUse.length;
-  const template = poolToUse[safeIndex];
+  const template = selectQuestTemplateForRotation(
+    poolToUse,
+    profile,
+    memory,
+    dayNumber
+  );
 
   return {
     ...template,
@@ -830,12 +1024,57 @@ export function getActiveAiQuest(
 export function getNextAiQuestIndex(
   aiAnalysis: AiSystemAnalysis | null,
   currentIndex: number,
-  recentTitles: string[] = []
+  recentTitles: string[] = [],
+  profile?: UserProfile,
+  memory?: SpecialQuestMemory | null
 ) {
   if (!aiAnalysis?.specialQuests?.length) return 0;
   const normalizedRecentTitles = recentTitles
     .map((title) => title.trim().toLowerCase())
     .filter(Boolean);
+  const safeMemory = normalizeSpecialQuestMemory(memory);
+
+  if (profile) {
+    const questPool: SpecialQuestTemplate[] = aiAnalysis.specialQuests.map((quest, index) => ({
+      id: 10000 + index,
+      title: quest.title,
+      description: quest.description,
+      xp: quest.xp,
+      statRewards: quest.statRewards,
+      penalty: quest.penalty,
+      preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
+      tags: quest.tags,
+      source: quest.source,
+      jobFocus: quest.jobFocus,
+      durationMinutes: quest.durationMinutes,
+      completionCondition: quest.completionCondition,
+      interestCategories: quest.interestCategories,
+    }));
+    const preferredSources = getPreferredSources(profile, safeMemory, questPool);
+    const primaryPreferredSource = preferredSources[0];
+    const ranked = aiAnalysis.specialQuests
+      .map((quest, index) => {
+        const source = quest.source ?? "interest";
+        const jobFocus = quest.jobFocus ?? "None";
+        let score = index === currentIndex ? -100 : 0;
+
+        if (!normalizedRecentTitles.includes(quest.title.trim().toLowerCase())) {
+          score += 80;
+        }
+        if (source === primaryPreferredSource) score += 45;
+        if (preferredSources.includes(source)) score += 20;
+        if (!safeMemory.recentSources.slice(0, 3).includes(source)) score += 15;
+        if (!safeMemory.recentJobFocuses.slice(0, 3).includes(jobFocus)) {
+          score += 10;
+        }
+        if (jobFocus === profile.questRotationPreference) score += 15;
+
+        return { index, score };
+      })
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+
+    if (ranked[0]) return ranked[0].index;
+  }
 
   for (let offset = 1; offset <= aiAnalysis.specialQuests.length; offset += 1) {
     const candidateIndex = (currentIndex + offset) % aiAnalysis.specialQuests.length;
@@ -967,6 +1206,14 @@ export function createNewUserRecord(name: string): UserRecord {
     ...defaultProfile,
     name,
   };
+  const specialQuestMemory = normalizeSpecialQuestMemory();
+  const specialQuest = createDailySpecialQuest(
+    today,
+    defaultStats,
+    profile,
+    null,
+    specialQuestMemory
+  );
 
   const activeEffects: ActiveEffects = {
     doubleDailyXpDate: null,
@@ -981,7 +1228,7 @@ export function createNewUserRecord(name: string): UserRecord {
     totalXp: 0,
     stats: defaultStats,
     history: [],
-    specialQuest: createDailySpecialQuest(today, defaultStats, profile),
+    specialQuest,
     penaltyNotice: null,
     log: [],
     aiAnalysis: null,
@@ -990,6 +1237,10 @@ export function createNewUserRecord(name: string): UserRecord {
     artifacts: createStarterArtifacts(),
     activeEffects,
     lastResetDate: today,
+    specialQuestMemory: appendSpecialQuestMemory(
+      specialQuestMemory,
+      specialQuest
+    ),
   };
 }
 
@@ -1003,6 +1254,9 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
   const safeEffects: ActiveEffects = {
     doubleDailyXpDate: user.activeEffects?.doubleDailyXpDate ?? null,
   };
+  const safeSpecialQuestMemory = normalizeSpecialQuestMemory(
+    user.specialQuestMemory
+  );
 
   if (user.lastResetDate === today) {
     return {
@@ -1013,6 +1267,7 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       aiQuestIndex: user.aiQuestIndex ?? 0,
       artifacts: normalizeArtifacts(user.artifacts),
       activeEffects: safeEffects,
+      specialQuestMemory: safeSpecialQuestMemory,
     };
   }
 
@@ -1029,16 +1284,19 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     });
   }
 
+  const nextSpecialQuest = createDailySpecialQuest(
+    today,
+    user.stats,
+    safeProfile,
+    user.aiAnalysis,
+    safeSpecialQuestMemory
+  );
+
   return {
     ...user,
     profile: safeProfile,
     quests: createDailyQuests(safeProfile),
-    specialQuest: createDailySpecialQuest(
-      today,
-      user.stats,
-      safeProfile,
-      user.aiAnalysis
-    ),
+    specialQuest: nextSpecialQuest,
     penaltyNotice,
     log,
     aiAnalysis: user.aiAnalysis ?? null,
@@ -1049,5 +1307,9 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       doubleDailyXpDate: null,
     },
     lastResetDate: today,
+    specialQuestMemory: appendSpecialQuestMemory(
+      safeSpecialQuestMemory,
+      nextSpecialQuest
+    ),
   };
 }

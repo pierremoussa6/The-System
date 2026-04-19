@@ -27,21 +27,20 @@ import {
   addStatRewards,
   appendHistoryEntry,
   appendLog,
+  appendSpecialQuestMemory,
   createDailyQuests,
   createDailySpecialQuest,
   createNewUserRecord,
   createSpecialQuestFromAiSuggestion,
   defaultStats,
-  filterQuestPoolForProfile,
   getActiveAiQuest,
   getNextAiQuestIndex,
   getPreviewSpecialQuests,
   getQuestStatRewards,
   getTodayString,
   getYesterdayString,
+  normalizeSpecialQuestMemory,
   normalizeUserForToday,
-  scalePenaltyText,
-  scaleXp,
 } from "./quest-engine";
 import { useAuth } from "./auth-context";
 import { getSupabaseBrowserClient } from "./lib/supabase/client";
@@ -499,22 +498,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...current.profile,
         ...profile,
       };
+      const safeMemory = normalizeSpecialQuestMemory(
+        current.specialQuestMemory
+      );
+      const nextSpecialQuest = createDailySpecialQuest(
+        getTodayString(),
+        current.stats,
+        safeProfile,
+        current.aiAnalysis,
+        safeMemory
+      );
 
       const nextLog = appendLog(current.log, {
         type: "system_notice",
         title: "Hunter Profile Updated",
-        details: `Preferences recalibrated. Build preference: ${safeProfile.preferredBuild}. Difficulty: ${safeProfile.difficulty}.`,
+        details:
+          `Preferences recalibrated. Build preference: ${safeProfile.preferredBuild}. ` +
+          `Difficulty: ${safeProfile.difficulty}. Rotation: ${safeProfile.questRotationPreference}.`,
       });
 
       return {
         ...current,
         profile: safeProfile,
         quests: createDailyQuests(safeProfile),
-        specialQuest: createDailySpecialQuest(
-          getTodayString(),
-          current.stats,
-          safeProfile,
-          current.aiAnalysis
+        specialQuest: nextSpecialQuest,
+        specialQuestMemory: appendSpecialQuestMemory(
+          safeMemory,
+          nextSpecialQuest
         ),
         log: nextLog,
       };
@@ -527,6 +537,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateActiveUser((current) => {
       const today = getTodayString();
       const firstAiQuest = getActiveAiQuest(analysis, 0);
+      const nextSpecialQuest = firstAiQuest
+        ? createSpecialQuestFromAiSuggestion(firstAiQuest, today)
+        : current.specialQuest;
 
       let nextLog = current.log;
 
@@ -553,9 +566,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...current,
         aiAnalysis: analysis,
         aiQuestIndex: 0,
-        specialQuest: firstAiQuest
-          ? createSpecialQuestFromAiSuggestion(firstAiQuest, today)
-          : current.specialQuest,
+        specialQuest: nextSpecialQuest,
+        specialQuestMemory: firstAiQuest
+          ? appendSpecialQuestMemory(current.specialQuestMemory, nextSpecialQuest)
+          : current.specialQuestMemory,
         log: nextLog,
       };
     });
@@ -757,15 +771,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const nextIndex = getNextAiQuestIndex(
           current.aiAnalysis,
           current.aiQuestIndex,
-          recentTitles
+          recentTitles,
+          current.profile,
+          current.specialQuestMemory
         );
         const nextAiQuest = getActiveAiQuest(current.aiAnalysis, nextIndex);
 
         if (nextAiQuest) {
+          const nextSpecialQuest = createSpecialQuestFromAiSuggestion(
+            nextAiQuest,
+            today
+          );
+
           return {
             ...current,
             aiQuestIndex: nextIndex,
-            specialQuest: createSpecialQuestFromAiSuggestion(nextAiQuest, today),
+            specialQuest: nextSpecialQuest,
+            specialQuestMemory: appendSpecialQuestMemory(
+              current.specialQuestMemory,
+              nextSpecialQuest
+            ),
             log: appendLog(current.log, {
               type: "system_rotation",
               title: nextAiQuest.title,
@@ -775,34 +800,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const pool = filterQuestPoolForProfile(
+      const nextSpecialQuest = createDailySpecialQuest(
+        today,
         current.stats,
         current.profile,
-        current.aiAnalysis
+        current.aiAnalysis,
+        current.specialQuestMemory
       );
-
-      if (pool.length === 0) {
-        return current;
-      }
-
-      const randomIndex = Math.floor(Math.random() * pool.length);
-      const template = pool[randomIndex];
 
       return {
         ...current,
-        specialQuest: {
-          ...template,
-          xp: scaleXp(template.xp, current.profile.difficulty),
-          penalty: scalePenaltyText(template.penalty, current.profile.difficulty),
-          completed: false,
-          awardedToday: false,
-          assignedDate: today,
-          status: "pending",
-        },
+        specialQuest: nextSpecialQuest,
+        specialQuestMemory: appendSpecialQuestMemory(
+          current.specialQuestMemory,
+          nextSpecialQuest
+        ),
         log: appendLog(current.log, {
           type: "system_rotation",
-          title: template.title,
-          details: "System rotated to a local fallback special quest.",
+          title: nextSpecialQuest.title,
+          details:
+            "System rotated to a memory-aware local fallback special quest.",
         }),
       };
     });

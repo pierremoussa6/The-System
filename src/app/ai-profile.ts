@@ -10,6 +10,10 @@ export type AiProfileContext = {
     name: string;
     goal: string;
     profession: string;
+    mainJobOverride: string;
+    secondaryJobOverride: string;
+    rpgIdentityNotes: string;
+    questRotationPreference: string;
     preferredBuild: string;
     detectedDifficulty: string;
     systemTone: string;
@@ -48,6 +52,10 @@ export function buildAiProfileContext(profile: UserProfile): AiProfileContext {
       name: profile.name,
       goal: profile.goal,
       profession: profile.profession,
+      mainJobOverride: profile.mainJobOverride,
+      secondaryJobOverride: profile.secondaryJobOverride,
+      rpgIdentityNotes: profile.rpgIdentityNotes,
+      questRotationPreference: profile.questRotationPreference,
       preferredBuild: profile.preferredBuild,
       detectedDifficulty: profile.difficulty,
       systemTone: profile.systemTone,

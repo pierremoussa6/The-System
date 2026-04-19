@@ -335,6 +335,10 @@ Core analysis rules:
 - Combine explicit answers with reasonable inferences. If uncertain, choose useful but conservative defaults.
 - Main Job must reflect the user's real-life profession or closest real-life role.
 - Secondary Job must be a playful RPG identity grounded in hobbies or side interests.
+- If mainJobOverride is provided, use it as the Main Job title unless it is unsafe or clearly unrelated.
+- If secondaryJobOverride is provided, use it as the Secondary Job title unless it is unsafe or clearly unrelated.
+- If rpgIdentityNotes is provided, use it to refine quest themes and rationale.
+- questRotationPreference should influence the mix of special quests, but do not make the set one-note.
 - Secondary Job examples: programmer hobby -> Hacker, lock picking or stealth hobby -> Thief, fitness -> Warrior, drawing/design -> Artist, music -> Bard, research/reading -> Scholar, business -> Merchant, hiking/outdoors -> Ranger.
 - Give both jobs a rationale and quest themes the app can reuse.
 - Study interests should be broad and rich. Use predefined interestCategories, but also include explicitInterests and inferredInterests as readable strings.

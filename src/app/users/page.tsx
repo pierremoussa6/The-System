@@ -11,17 +11,16 @@ import type { LogEntryType, UserRecord } from "../types";
 import {
   appendHistoryEntry,
   appendLog,
+  appendSpecialQuestMemory,
   createDailyQuests,
   createDailySpecialQuest,
   createSpecialQuestFromAiSuggestion,
-  filterQuestPoolForProfile,
   getActiveAiQuest,
   getNextAiQuestIndex,
   getTodayString,
   createNewUserRecord,
+  normalizeSpecialQuestMemory,
   normalizeUserForToday,
-  scalePenaltyText,
-  scaleXp,
 } from "../quest-engine";
 
 type RemoteProfile = {
@@ -150,7 +149,9 @@ function createRandomSpecialQuest(record: UserRecord) {
     const nextIndex = getNextAiQuestIndex(
       record.aiAnalysis,
       record.aiQuestIndex,
-      recentTitles
+      recentTitles,
+      record.profile,
+      record.specialQuestMemory
     );
     const aiQuest = getActiveAiQuest(record.aiAnalysis, nextIndex);
 
@@ -162,23 +163,14 @@ function createRandomSpecialQuest(record: UserRecord) {
     }
   }
 
-  const pool = filterQuestPoolForProfile(
-    record.stats,
-    record.profile,
-    record.aiAnalysis
-  );
-  const template = pool[Math.floor(Math.random() * pool.length)];
-
   return {
-    specialQuest: {
-      ...template,
-      xp: scaleXp(template.xp, record.profile.difficulty),
-      penalty: scalePenaltyText(template.penalty, record.profile.difficulty),
-      completed: false,
-      awardedToday: false,
-      assignedDate: today,
-      status: "pending" as const,
-    },
+    specialQuest: createDailySpecialQuest(
+      today,
+      record.stats,
+      record.profile,
+      record.aiAnalysis,
+      record.specialQuestMemory
+    ),
     aiQuestIndex: record.aiQuestIndex,
   };
 }
@@ -421,14 +413,23 @@ export default function UsersPage() {
 
   async function resetDailyQuests(account: RemoteAccount) {
     const appState = getAccountAppState(account);
+    const specialQuestMemory = normalizeSpecialQuestMemory(
+      appState.specialQuestMemory
+    );
+    const nextSpecialQuest = createDailySpecialQuest(
+      getTodayString(),
+      appState.stats,
+      appState.profile,
+      appState.aiAnalysis,
+      specialQuestMemory
+    );
     const nextState: UserRecord = {
       ...appState,
       quests: createDailyQuests(appState.profile),
-      specialQuest: createDailySpecialQuest(
-        getTodayString(),
-        appState.stats,
-        appState.profile,
-        appState.aiAnalysis
+      specialQuest: nextSpecialQuest,
+      specialQuestMemory: appendSpecialQuestMemory(
+        specialQuestMemory,
+        nextSpecialQuest
       ),
       lastResetDate: getTodayString(),
     };
@@ -448,6 +449,10 @@ export default function UsersPage() {
       ...appState,
       specialQuest,
       aiQuestIndex,
+      specialQuestMemory: appendSpecialQuestMemory(
+        appState.specialQuestMemory,
+        specialQuest
+      ),
     };
 
     await saveAccountState(account, nextState, {

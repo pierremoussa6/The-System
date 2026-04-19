@@ -15,7 +15,11 @@ import {
   getRankProgress,
   getSystemRank,
 } from "../rank-system";
-import { getPersonalization, interestCategoryLabels } from "../quest-engine";
+import {
+  getPersonalization,
+  interestCategoryLabels,
+  questRotationPreferenceLabels,
+} from "../quest-engine";
 import {
   getAchievementSummary,
   getAchievementTierClasses,
@@ -201,6 +205,9 @@ export default function DashboardPage() {
               <p className="mb-1 text-sm text-zinc-400">System Pressure</p>
               <p className="text-white">Tone: {aiAnalysis.recommendedSystemTone}</p>
               <p className="text-white">Primary Focus: {aiAnalysis.primaryFocus}</p>
+              <p className="text-white">
+                Rotation: {questRotationPreferenceLabels[profile.questRotationPreference]}
+              </p>
               <p className="mt-2 text-sm text-zinc-400">
                 Active AI Quest: {displayedAiQuestIndex}/{aiQuestCount || 0}
               </p>
@@ -499,6 +506,22 @@ export default function DashboardPage() {
             <span className="text-zinc-400">Study Interest:</span>{" "}
             <span className="text-white">{profile.studyInterest}</span>
           </p>
+          <p>
+            <span className="text-zinc-400">Quest Rotation:</span>{" "}
+            <span className="text-white">
+              {questRotationPreferenceLabels[profile.questRotationPreference]}
+            </span>
+          </p>
+          {(profile.mainJobOverride || profile.secondaryJobOverride) && (
+            <p>
+              <span className="text-zinc-400">Identity Overrides:</span>{" "}
+              <span className="text-white">
+                {[profile.mainJobOverride, profile.secondaryJobOverride]
+                  .filter(Boolean)
+                  .join(" / ")}
+              </span>
+            </p>
+          )}
         </div>
       </PanelCard>
 
