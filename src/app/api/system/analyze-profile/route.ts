@@ -387,6 +387,8 @@ ${JSON.stringify(profile, null, 2)}
 Core analysis rules:
 - Infer the user's goals, interests, challenge preferences, lifestyle patterns, fitness level, diet constraints, real-life profession, and hobbies.
 - Combine explicit answers with reasonable inferences. If uncertain, choose useful but conservative defaults.
+- Treat motivationWhy as the deepest reason the player wants to improve, and use it to shape tone, friction tolerance, and workout adherence strategies.
+- Treat preferredWorkoutDays as hard scheduling guidance when building workout recommendations and workout-flavored quests whenever possible.
 - Main Job must reflect the user's real-life profession or closest real-life role.
 - Secondary Job must be a playful RPG identity grounded in hobbies or side interests.
 - If mainJobOverride is provided, use it as the Main Job title unless it is unsafe or clearly unrelated.
@@ -397,6 +399,7 @@ Core analysis rules:
 - Give both jobs a rationale and quest themes the app can reuse.
 - Study interests should be broad and rich. Use predefined interestCategories, but also include explicitInterests and inferredInterests as readable strings.
 - Workout recommendation must account for goals, schedule, current fitness, stress, sleep, and preferred workout style.
+- When the player wants fitness support, make workout guidance detailed enough to drive a real routine: concrete exercise names, realistic session structure, and progression over multiple weeks.
 - Diet recommendation must account for preferences, constraints, lifestyle, and sustainability.
 - Recommendations must be realistic, actionable, and useful on a phone.
 
@@ -680,7 +683,9 @@ function sanitizeAnalysis(raw: RawAnalysis, profile: UserProfile): AiSystemAnaly
     workoutDirection: boundedString(raw.workoutDirection, "Train consistently with a low-energy fallback.", 520),
     weeklyStrategy: boundedString(raw.weeklyStrategy, "Use small daily wins and steady pressure.", 320),
     personalization: {
-      primaryGoals: sanitizeStringArray(personalization.primaryGoals, [profile.goal || "Improve daily life"]),
+      primaryGoals: sanitizeStringArray(personalization.primaryGoals, [
+        profile.motivationWhy || profile.goal || "Improve daily life",
+      ]),
       explicitInterests: sanitizeStringArray(personalization.explicitInterests, [profile.studyInterest]),
       inferredInterests: sanitizeStringArray(personalization.inferredInterests, ["discipline", "self-development"]),
       interestCategories: sanitizeInterestCategories(personalization.interestCategories),

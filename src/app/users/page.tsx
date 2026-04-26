@@ -837,7 +837,7 @@ export default function UsersPage() {
                     {user.profile.name || "Unnamed User"}
                   </h2>
                   <p className="text-sm text-zinc-400">
-                    Goal: {user.profile.goal || "No goal set"}
+                    Why get better: {user.profile.goal || "No reason set"}
                   </p>
                   <p className="text-sm text-zinc-400">
                     Difficulty: {user.profile.difficulty}

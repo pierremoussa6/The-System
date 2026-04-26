@@ -393,8 +393,8 @@ export default function DashboardPage() {
           </p>
 
           <p>
-            <span className="text-zinc-400">Rank Score:</span>{" "}
-            <span className="text-white">{rankProgress.score}</span>
+            <span className="text-zinc-400">Current Level:</span>{" "}
+            <span className="text-white">{rankProgress.currentLevel}</span>
           </p>
 
           {rankProgress.nextRank ? (
@@ -412,8 +412,8 @@ export default function DashboardPage() {
               </div>
 
               <p className="text-sm text-zinc-400">
-                {rankProgress.remainingScore} score needed to reach{" "}
-                {rankProgress.nextRank}
+                {rankProgress.remainingLevels} level(s) needed to reach{" "}
+                {rankProgress.nextRank}.
               </p>
               {rankProgress.remainingStats > 0 && (
                 <p className="text-sm text-zinc-400">
@@ -500,8 +500,14 @@ export default function DashboardPage() {
             </span>
           </p>
           <p>
-            <span className="text-zinc-400">Main Goal:</span>{" "}
+            <span className="text-zinc-400">Why Get Better:</span>{" "}
             <span className="text-white">{profile.goal || "No goal set"}</span>
+          </p>
+          <p>
+            <span className="text-zinc-400">Preferred Workout Days:</span>{" "}
+            <span className="text-white">
+              {profile.preferredWorkoutDays || "No days selected"}
+            </span>
           </p>
           <p>
             <span className="text-zinc-400">Profession:</span>{" "}

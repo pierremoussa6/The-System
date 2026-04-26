@@ -104,8 +104,11 @@ Rules:
 - Use personalization.mainJob and personalization.secondaryJob when present.
 - Include at least one mission that supports the Main Job path and at least one mission that supports the Secondary Job path.
 - Training and nutrition focus should respect workoutRecommendation and dietRecommendation when present.
+- Use motivationWhy as the emotional anchor for the week.
+- Respect preferredWorkoutDays when assigning workout missions. If specific days are listed, place the main sessions on those days unless recovery or schedule constraints make that unrealistic.
 - Do not repeat the same structure every day. Mix training, diet, recovery, discipline, and intelligence work based on the profile.
 - If the player prefers gym and the plan calls for several weekly gym sessions, place harder gym work on only some days and use walks, mobility, or recovery on the other days.
+- When assigning workouts, prefer detailed exercise language with sets, reps, or duration so the player can act on it immediately.
 - Cardio, running, walking, hiking, mobility, and conditioning support Agility.
 - Hydration supports Vitality. Protein, vitamins, minerals, and diet adherence support Magic Resistance.
 - Make the plan useful on a phone at the gym: concrete, short enough to act on, and clear about what to do today.

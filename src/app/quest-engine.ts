@@ -22,6 +22,7 @@ import type {
   Stats,
   UserProfile,
   UserRecord,
+  WorkoutJournalEntry,
 } from "./types";
 import { createStarterArtifacts, normalizeArtifacts } from "./artifacts";
 
@@ -58,9 +59,47 @@ export function normalizeStats(stats?: LegacyStats | null): Stats {
   };
 }
 
+function normalizeWorkoutJournalEntries(
+  entries: WorkoutJournalEntry[] | undefined
+) {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      id:
+        typeof entry.id === "string" && entry.id.trim()
+          ? entry.id
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      date:
+        typeof entry.date === "string" && entry.date.trim()
+          ? entry.date
+          : getTodayString(),
+      sessionName:
+        typeof entry.sessionName === "string" ? entry.sessionName.trim() : "",
+      exerciseName:
+        typeof entry.exerciseName === "string"
+          ? entry.exerciseName.trim()
+          : "",
+      sets:
+        typeof entry.sets === "number" && Number.isFinite(entry.sets)
+          ? Math.max(1, Math.round(entry.sets))
+          : 1,
+      reps: typeof entry.reps === "string" ? entry.reps.trim() : "",
+      weightKg:
+        typeof entry.weightKg === "number" && Number.isFinite(entry.weightKg)
+          ? Math.max(0, Math.round(entry.weightKg * 10) / 10)
+          : null,
+      notes: typeof entry.notes === "string" ? entry.notes.trim() : "",
+    }))
+    .filter((entry) => entry.exerciseName);
+}
+
 export const defaultProfile: UserProfile = {
   name: "",
   goal: "",
+  motivationWhy: "",
+  preferredWorkoutDays: "",
   preferredBuild: "Balanced",
   difficulty: "Medium",
   fitnessLevel: "Beginner",
@@ -606,7 +645,9 @@ export function getPersonalization(
   const interests = splitListText(profile.customInterests);
 
   return applyIdentityOverrides({
-    primaryGoals: [profile.goal || "Build a stronger daily system"],
+    primaryGoals: [
+      profile.motivationWhy || profile.goal || "Build a stronger daily system",
+    ],
     explicitInterests: [
       profile.studyInterest !== "None" ? profile.studyInterest : "",
       ...interests,
@@ -1055,13 +1096,16 @@ function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString
     profile.hobbies.toLowerCase().includes("hiking");
   const prefersGym = profile.workoutPreference === "Gym";
   const strengthDay = isStrengthTrainingDay(dateString);
+  const preferredDaysNote = profile.preferredWorkoutDays.trim()
+    ? ` Preferred workout days: ${profile.preferredWorkoutDays.trim()}.`
+    : "";
 
   if (prefersGym && strengthDay) {
     return {
       id: 1,
       title: "Gym Strength Session",
       description:
-        "Complete the planned gym session from your weekly protocol, or do the smallest safe strength version if time is tight.",
+        `Complete the planned gym session from your weekly protocol, or do the smallest safe strength version if time is tight.${preferredDaysNote}`,
       xp: scaleXp(50, profile.difficulty),
       completed: false,
       awardedToday: false,
@@ -1077,7 +1121,7 @@ function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString
           ? "Cardio Run Protocol"
           : "Cardio Walk / Hike Protocol",
       description:
-        "Complete a sustainable run, walk, or hike that matches your current energy.",
+        `Complete a sustainable run, walk, or hike that matches your current energy.${preferredDaysNote}`,
       xp: scaleXp(35, profile.difficulty),
       completed: false,
       awardedToday: false,
@@ -1089,8 +1133,8 @@ function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString
     id: 1,
     title: prefersGym ? "Recovery Walk or Mobility" : "Training Protocol",
     description: prefersGym
-      ? "Non-gym day: keep momentum with walking, mobility, or easy conditioning."
-      : "Complete the movement plan that fits today: gym, home training, cardio, or mobility.",
+      ? `Non-gym day: keep momentum with walking, mobility, or easy conditioning.${preferredDaysNote}`
+      : `Complete the movement plan that fits today: gym, home training, cardio, or mobility.${preferredDaysNote}`,
     xp: scaleXp(prefersGym ? 25 : 35, profile.difficulty),
     completed: false,
     awardedToday: false,
@@ -1569,6 +1613,76 @@ export function addStatRewards(
   };
 }
 
+export function subtractStatPenalty(
+  currentStats: Stats,
+  penalties: Partial<Stats>
+): Stats {
+  return {
+    strength: Math.max(0, currentStats.strength - (penalties.strength ?? 0)),
+    vitality: Math.max(0, currentStats.vitality - (penalties.vitality ?? 0)),
+    discipline: Math.max(
+      0,
+      currentStats.discipline - (penalties.discipline ?? 0)
+    ),
+    intelligence: Math.max(
+      0,
+      currentStats.intelligence - (penalties.intelligence ?? 0)
+    ),
+    agility: Math.max(0, currentStats.agility - (penalties.agility ?? 0)),
+    magicResistance: Math.max(
+      0,
+      currentStats.magicResistance - (penalties.magicResistance ?? 0)
+    ),
+  };
+}
+
+function getMissedDailyPenalty(user: UserRecord): Partial<Stats> {
+  const penalties = user.quests
+    .filter((quest) => !quest.completed)
+    .reduce<Partial<Stats>>((accumulator, quest) => {
+      const rewards = getQuestStatRewards(quest.id, quest);
+
+      Object.entries(rewards).forEach(([key, value]) => {
+        if (typeof value !== "number" || value <= 0) return;
+        const statKey = key as keyof Stats;
+        accumulator[statKey] = Math.max(accumulator[statKey] ?? 0, 1);
+      });
+
+      return accumulator;
+    }, {});
+
+  if (user.quests.some((quest) => !quest.completed)) {
+    penalties.discipline = Math.max(1, penalties.discipline ?? 0);
+  }
+
+  return penalties;
+}
+
+function getMissedSpecialQuestPenalty(user: UserRecord): Partial<Stats> {
+  if (user.specialQuest.completed || user.specialQuest.status === "waived") {
+    return {};
+  }
+
+  const penalties: Partial<Stats> = { discipline: 1 };
+
+  Object.entries(user.specialQuest.statRewards).forEach(([key, value]) => {
+    if (typeof value !== "number" || value <= 0) return;
+    const statKey = key as keyof Stats;
+    penalties[statKey] = Math.max(penalties[statKey] ?? 0, 1);
+  });
+
+  return penalties;
+}
+
+function describePenaltyStats(penalties: Partial<Stats>) {
+  return (
+    Object.entries(penalties)
+      .filter(([, value]) => typeof value === "number" && value > 0)
+      .map(([key, value]) => `${key} -${value}`)
+      .join(", ") || "discipline -1"
+  );
+}
+
 export function getQuestStatRewards(
   questId: number,
   quest?: Quest
@@ -1640,6 +1754,7 @@ export function createNewUserRecord(name: string): UserRecord {
     totalXp: 0,
     stats: defaultStats,
     history: [],
+    workoutJournal: [],
     specialQuest,
     penaltyNotice: null,
     log: [],
@@ -1664,6 +1779,14 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
   const safeProfile: UserProfile = {
     ...defaultProfile,
     ...user.profile,
+    goal:
+      user.profile?.goal ??
+      user.profile?.motivationWhy ??
+      defaultProfile.goal,
+    motivationWhy:
+      user.profile?.motivationWhy ??
+      user.profile?.goal ??
+      defaultProfile.motivationWhy,
     mainImprovementArea:
       user.profile?.mainImprovementArea === "Focus"
         ? "Intelligence"
@@ -1676,12 +1799,14 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
   const safeSpecialQuestMemory = normalizeSpecialQuestMemory(
     user.specialQuestMemory
   );
+  const safeWorkoutJournal = normalizeWorkoutJournalEntries(user.workoutJournal);
 
   if (user.lastResetDate === today) {
     return {
       ...user,
       profile: safeProfile,
       stats: safeStats,
+      workoutJournal: safeWorkoutJournal,
       dailyHp: user.dailyHpDate === today ? user.dailyHp ?? null : null,
       dailyHpDate: user.dailyHpDate === today ? user.dailyHpDate ?? null : null,
       aiAnalysis: user.aiAnalysis ?? null,
@@ -1695,8 +1820,30 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
 
   let penaltyNotice = user.penaltyNotice;
   let log = user.log;
+  let nextStats = safeStats;
+  let nextHistory = user.history;
+  let nextStreak = user.streak;
+
+  const missedDailyPenalty = getMissedDailyPenalty(user);
+  const hasMissedDailyQuests = user.quests.some((quest) => !quest.completed);
+
+  if (hasMissedDailyQuests) {
+    nextStats = subtractStatPenalty(nextStats, missedDailyPenalty);
+    nextHistory = appendHistoryEntry(nextHistory, nextStats);
+    log = appendLog(log, {
+      type: "system_notice",
+      title: "Consistency Penalty Applied",
+      details: `Daily protocol was not completed. Attributes reduced: ${describePenaltyStats(
+        missedDailyPenalty
+      )}.`,
+    });
+  }
 
   if (!user.specialQuest.completed && user.specialQuest.status !== "waived") {
+    const missedSpecialPenalty = getMissedSpecialQuestPenalty(user);
+
+    nextStats = subtractStatPenalty(nextStats, missedSpecialPenalty);
+    nextHistory = appendHistoryEntry(nextHistory, nextStats);
     penaltyNotice = createPenaltyNotice(user.specialQuest);
 
     log = appendLog(log, {
@@ -1704,11 +1851,23 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       title: `Penalty Triggered: ${user.specialQuest.title}`,
       details: user.specialQuest.penalty,
     });
+
+    log = appendLog(log, {
+      type: "system_notice",
+      title: "Special Quest Failure Registered",
+      details: `Attributes reduced: ${describePenaltyStats(
+        missedSpecialPenalty
+      )}.`,
+    });
+  }
+
+  if (user.lastCompletionDate !== getYesterdayString()) {
+    nextStreak = 0;
   }
 
   const nextSpecialQuest = createDailySpecialQuest(
     today,
-    safeStats,
+    nextStats,
     safeProfile,
     user.aiAnalysis,
     safeSpecialQuestMemory
@@ -1718,10 +1877,13 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     ...user,
     profile: safeProfile,
     quests: createDailyQuests(safeProfile),
-    stats: safeStats,
+    stats: nextStats,
+    history: nextHistory,
+    workoutJournal: safeWorkoutJournal,
     specialQuest: nextSpecialQuest,
     penaltyNotice,
     log,
+    streak: nextStreak,
     aiAnalysis: user.aiAnalysis ?? null,
     aiWeeklyPlan: user.aiWeeklyPlan ?? null,
     aiQuestIndex: user.aiQuestIndex ?? 0,

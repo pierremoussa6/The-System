@@ -15,7 +15,7 @@ const navItems = [
   { href: "/progress", label: "Progress" },
   { href: "/system-log", label: "System Log" },
   { href: "/profile-setup", label: "Profile Setup" },
-  { href: "/onboarding", label: "Onboarding" },
+  { href: "/onboarding", label: "How It Works" },
   { href: "/users", label: "Users", creatorOnly: true },
 ];
 

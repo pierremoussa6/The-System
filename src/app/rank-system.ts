@@ -1,3 +1,4 @@
+import { calculateLevel } from "./logic";
 import type { Stats } from "./types";
 
 export type SystemRank =
@@ -10,6 +11,29 @@ export type SystemRank =
   | "SS"
   | "Monarch";
 
+type RankRequirement = {
+  rank: SystemRank;
+  label: string;
+  minLevel: number;
+  minStats: number;
+};
+
+const rankRequirements: RankRequirement[] = [
+  { rank: "E", label: "Ordinary Human", minLevel: 1, minStats: 0 },
+  { rank: "D", label: "Unstable Awakening", minLevel: 3, minStats: 6 },
+  { rank: "C", label: "Disciplined Rookie", minLevel: 15, minStats: 45 },
+  { rank: "B", label: "Trained Fighter", minLevel: 22, minStats: 75 },
+  { rank: "A", label: "Advanced Hunter", minLevel: 32, minStats: 110 },
+  { rank: "S", label: "High-Rank Hunter", minLevel: 45, minStats: 155 },
+  { rank: "SS", label: "Awakened Elite", minLevel: 60, minStats: 215 },
+  {
+    rank: "Monarch",
+    label: "Shadow Monarch Candidate",
+    minLevel: 80,
+    minStats: 300,
+  },
+];
+
 export function getTotalStatPoints(stats: Stats) {
   return (
     stats.strength +
@@ -21,113 +45,56 @@ export function getTotalStatPoints(stats: Stats) {
   );
 }
 
+function getRequirement(rank: SystemRank) {
+  return rankRequirements.find((entry) => entry.rank === rank) ?? rankRequirements[0];
+}
+
 export function getRankScore(totalXp: number, stats: Stats) {
-  return Math.floor(totalXp + getTotalStatPoints(stats) * 12);
+  const level = calculateLevel(totalXp).level;
+  return level * 1000 + getTotalStatPoints(stats);
 }
 
 export function getSystemRank(totalXp: number, stats: Stats): SystemRank {
-  const score = getRankScore(totalXp, stats);
+  const level = calculateLevel(totalXp).level;
   const totalStats = getTotalStatPoints(stats);
+  let currentRank: SystemRank = "E";
 
-  if (score >= 10000 && totalStats >= 160) return "Monarch";
-  if (score >= 7200 && totalStats >= 115) return "SS";
-  if (score >= 4800 && totalStats >= 80) return "S";
-  if (score >= 3000 && totalStats >= 50) return "A";
-  if (score >= 1700) return "B";
-  if (score >= 800) return "C";
-  if (score >= 250) return "D";
-  return "E";
+  for (const requirement of rankRequirements) {
+    if (level >= requirement.minLevel && totalStats >= requirement.minStats) {
+      currentRank = requirement.rank;
+    }
+  }
+
+  return currentRank;
 }
 
 export function getRankLabel(rank: SystemRank) {
-  switch (rank) {
-    case "Monarch":
-      return "Shadow Monarch Candidate";
-    case "SS":
-      return "Awakened Elite";
-    case "S":
-      return "High-Rank Hunter";
-    case "A":
-      return "Advanced Hunter";
-    case "B":
-      return "Trained Fighter";
-    case "C":
-      return "Disciplined Rookie";
-    case "D":
-      return "Unstable Awakening";
-    case "E":
-    default:
-      return "Ordinary Human";
-  }
+  return getRequirement(rank).label;
 }
 
 export function getNextRank(rank: SystemRank): SystemRank | null {
-  switch (rank) {
-    case "E":
-      return "D";
-    case "D":
-      return "C";
-    case "C":
-      return "B";
-    case "B":
-      return "A";
-    case "A":
-      return "S";
-    case "S":
-      return "SS";
-    case "SS":
-      return "Monarch";
-    case "Monarch":
-    default:
-      return null;
+  const index = rankRequirements.findIndex((entry) => entry.rank === rank);
+  if (index === -1 || index === rankRequirements.length - 1) {
+    return null;
   }
+
+  return rankRequirements[index + 1]?.rank ?? null;
 }
 
 export function getRankThreshold(rank: SystemRank) {
-  switch (rank) {
-    case "E":
-      return 0;
-    case "D":
-      return 250;
-    case "C":
-      return 800;
-    case "B":
-      return 1700;
-    case "A":
-      return 3000;
-    case "S":
-      return 4800;
-    case "SS":
-      return 7200;
-    case "Monarch":
-      return 10000;
-  }
+  return getRequirement(rank).minLevel;
 }
 
 export function getRankStatRequirement(rank: SystemRank) {
-  switch (rank) {
-    case "A":
-      return 50;
-    case "S":
-      return 80;
-    case "SS":
-      return 115;
-    case "Monarch":
-      return 160;
-    case "E":
-    case "D":
-    case "C":
-    case "B":
-    default:
-      return 0;
-  }
+  return getRequirement(rank).minStats;
 }
 
 export function getRankProgress(totalXp: number, stats: Stats) {
   const rank = getSystemRank(totalXp, stats);
   const nextRank = getNextRank(rank);
-  const score = getRankScore(totalXp, stats);
   const totalStats = getTotalStatPoints(stats);
+  const currentLevel = calculateLevel(totalXp).level;
+  const score = getRankScore(totalXp, stats);
   const currentThreshold = getRankThreshold(rank);
 
   if (!nextRank) {
@@ -141,15 +108,19 @@ export function getRankProgress(totalXp: number, stats: Stats) {
       remainingScore: 0,
       requiredStats: getRankStatRequirement(rank),
       remainingStats: 0,
+      currentLevel,
+      remainingLevels: 0,
     };
   }
 
   const nextThreshold = getRankThreshold(nextRank);
   const requiredStats = getRankStatRequirement(nextRank);
-  const range = nextThreshold - currentThreshold;
-  const progress = score - currentThreshold;
-  const scorePercent =
-    range <= 0 ? 100 : Math.max(0, Math.min(100, (progress / range) * 100));
+  const levelRange = Math.max(1, nextThreshold - currentThreshold);
+  const levelProgress = Math.max(0, currentLevel - currentThreshold);
+  const levelPercent = Math.max(
+    0,
+    Math.min(100, (levelProgress / levelRange) * 100)
+  );
   const statPercent =
     requiredStats <= 0
       ? 100
@@ -161,10 +132,11 @@ export function getRankProgress(totalXp: number, stats: Stats) {
     score,
     currentThreshold,
     nextThreshold,
-    progressPercent: Math.min(scorePercent, statPercent),
-    remainingScore: Math.max(0, nextThreshold - score),
+    progressPercent: Math.min(levelPercent, statPercent),
+    remainingScore: Math.max(0, nextThreshold - currentLevel),
     requiredStats,
     remainingStats: Math.max(0, requiredStats - totalStats),
+    currentLevel,
+    remainingLevels: Math.max(0, nextThreshold - currentLevel),
   };
 }
-

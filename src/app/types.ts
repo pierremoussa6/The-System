@@ -27,6 +27,54 @@ export type HistoryEntry = {
   magicResistance: number;
 };
 
+export type WorkoutJournalEntry = {
+  id: string;
+  date: string;
+  sessionName: string;
+  exerciseName: string;
+  sets: number;
+  reps: string;
+  weightKg: number | null;
+  notes: string;
+};
+
+export type WorkoutProgramExercise = {
+  name: string;
+  sets: number;
+  reps: string;
+  restSeconds: number;
+  notes: string;
+};
+
+export type WorkoutProgramSession = {
+  day: string;
+  focus: string;
+  durationMinutes: number;
+  warmup: string;
+  exercises: WorkoutProgramExercise[];
+  finisher?: string;
+  lowEnergyOption: string;
+};
+
+export type WorkoutProgramPhase = {
+  name: string;
+  weeks: string;
+  objective: string;
+  progression: string;
+  sessions: WorkoutProgramSession[];
+};
+
+export type WorkoutProgram = {
+  headline: string;
+  motivationAnchor: string;
+  preferredDays: string[];
+  frequency: number;
+  sessionLengthMinutes: number;
+  progressionCadence: string;
+  currentPhaseLabel: string;
+  phases: WorkoutProgramPhase[];
+};
+
 export type BuildType =
   | "Warrior"
   | "Endurance"
@@ -275,6 +323,8 @@ export type AiSystemAnalysis = {
 export type UserProfile = {
   name: string;
   goal: string;
+  motivationWhy: string;
+  preferredWorkoutDays: string;
   preferredBuild: BuildType;
   difficulty: Difficulty;
   fitnessLevel: FitnessLevel;
@@ -349,6 +399,7 @@ export type PenaltyNotice = {
 export type LogEntryType =
   | "daily_quest"
   | "special_quest"
+  | "workout_log"
   | "penalty"
   | "special_status"
   | "system_analysis"
@@ -374,6 +425,7 @@ export type UserRecord = {
   totalXp: number;
   stats: Stats;
   history: HistoryEntry[];
+  workoutJournal: WorkoutJournalEntry[];
   specialQuest: SpecialQuest;
   penaltyNotice: PenaltyNotice;
   log: LogEntry[];
@@ -411,6 +463,7 @@ export type AppState = {
   totalXp: number;
   stats: Stats;
   history: HistoryEntry[];
+  workoutJournal: WorkoutJournalEntry[];
   specialQuest: SpecialQuest | null;
   penaltyNotice: PenaltyNotice;
   log: LogEntry[];
@@ -432,6 +485,9 @@ export type AppState = {
   updateAiAnalysis: (analysis: AiSystemAnalysis | null) => void;
   updateAiWeeklyPlan: (plan: AiWeeklyPlan | null) => void;
   updateDailyHp: (hp: number) => void;
+  addWorkoutJournalEntry: (
+    entry: Omit<WorkoutJournalEntry, "id">
+  ) => void;
   activateArtifact: (key: ArtifactKey) => void;
 
   createUser: (name: string) => void;

@@ -19,6 +19,7 @@ import type {
   Stats,
   UserProfile,
   UserRecord,
+  WorkoutJournalEntry,
 } from "./types";
 
 import { getArtifactMeta } from "./artifacts";
@@ -651,6 +652,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
+  function addWorkoutJournalEntry(entry: Omit<WorkoutJournalEntry, "id">) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const nextEntry: WorkoutJournalEntry = {
+        ...entry,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
+
+      return {
+        ...current,
+        workoutJournal: [nextEntry, ...(current.workoutJournal ?? [])].slice(0, 200),
+        log: appendLog(current.log, {
+          type: "workout_log",
+          title: `${nextEntry.exerciseName} logged`,
+          details:
+            `${nextEntry.date} · ${nextEntry.sessionName} · ` +
+            `${nextEntry.sets} set(s) x ${nextEntry.reps}` +
+            (nextEntry.weightKg !== null ? ` @ ${nextEntry.weightKg} kg` : ""),
+        }),
+      };
+    });
+  }
+
   function activateArtifact(key: ArtifactKey) {
     if (!activeUser) return;
 
@@ -895,6 +920,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         totalXp: activeUser?.totalXp ?? 0,
         stats: activeUser?.stats ?? defaultStats,
         history: activeUser?.history ?? [],
+        workoutJournal: activeUser?.workoutJournal ?? [],
         specialQuest: activeUser?.specialQuest ?? null,
         penaltyNotice: activeUser?.penaltyNotice ?? null,
         log: activeUser?.log ?? [],
@@ -918,6 +944,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateAiAnalysis,
         updateAiWeeklyPlan,
         updateDailyHp,
+        addWorkoutJournalEntry,
         activateArtifact,
 
         createUser,

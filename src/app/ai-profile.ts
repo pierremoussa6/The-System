@@ -9,6 +9,8 @@ export type AiProfileContext = {
   identity: {
     name: string;
     goal: string;
+    motivationWhy: string;
+    preferredWorkoutDays: string;
     profession: string;
     mainJobOverride: string;
     secondaryJobOverride: string;
@@ -51,6 +53,8 @@ export function buildAiProfileContext(profile: UserProfile): AiProfileContext {
     identity: {
       name: profile.name,
       goal: profile.goal,
+      motivationWhy: profile.motivationWhy,
+      preferredWorkoutDays: profile.preferredWorkoutDays,
       profession: profile.profession,
       mainJobOverride: profile.mainJobOverride,
       secondaryJobOverride: profile.secondaryJobOverride,

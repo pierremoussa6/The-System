@@ -15,6 +15,7 @@ export default function SystemLogPage() {
         (entry) =>
           entry.type === "daily_quest" ||
           entry.type === "special_quest" ||
+          entry.type === "workout_log" ||
           entry.type === "special_status"
       ),
       system: log.filter(
@@ -45,6 +46,8 @@ export default function SystemLogPage() {
         return "border-blue-500";
       case "special_quest":
         return "border-purple-500";
+      case "workout_log":
+        return "border-emerald-500";
       case "special_status":
         return "border-fuchsia-500";
       case "penalty":
@@ -68,6 +71,8 @@ export default function SystemLogPage() {
         return "Daily Quest";
       case "special_quest":
         return "Special Quest";
+      case "workout_log":
+        return "Workout Log";
       case "special_status":
         return "Quest State";
       case "penalty":

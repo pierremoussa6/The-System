@@ -58,6 +58,7 @@ function ProfileForm({
   async function handleSave() {
     const finalProfile: UserProfile = {
       ...form,
+      goal: form.motivationWhy.trim() || form.goal,
       onboardingCompleted: true,
     };
 
@@ -134,12 +135,18 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Main Goal</label>
+              <label className="mb-2 block text-zinc-400">
+                Why do you want to be better?
+              </label>
               <textarea
                 className="min-h-25 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
-                value={form.goal}
-                onChange={(e) => updateField("goal", e.target.value)}
+                value={form.motivationWhy}
+                onChange={(e) => updateField("motivationWhy", e.target.value)}
+                placeholder="I want to become stronger, more disciplined, healthier, more reliable..."
               />
+              <p className="mt-1 text-xs text-zinc-500">
+                The System uses this as your motivation anchor when assigning pressure and workout structure.
+              </p>
             </div>
 
             <div>
@@ -616,6 +623,23 @@ function ProfileForm({
               />
               <p className="mt-1 text-xs text-zinc-500">
                 Leave empty to let AI infer it from your profession.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-zinc-400">
+                Preferred Days for Workout
+              </label>
+              <textarea
+                className="min-h-20 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.preferredWorkoutDays}
+                onChange={(e) =>
+                  updateField("preferredWorkoutDays", e.target.value)
+                }
+                placeholder="Example: Monday, Wednesday, Friday"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                List the days you realistically want your main training sessions.
               </p>
             </div>
 
