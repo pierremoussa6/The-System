@@ -106,6 +106,7 @@ Rules:
 - Training and nutrition focus should respect workoutRecommendation and dietRecommendation when present.
 - Use motivationWhy as the emotional anchor for the week.
 - Respect preferredWorkoutDays when assigning workout missions. If specific days are listed, place the main sessions on those days unless recovery or schedule constraints make that unrealistic.
+- Never assign a named workout day on a different calendar day. For example, do not create "Complete Monday's gym session" on Sunday unless the user's preferredWorkoutDays explicitly moved that session to Sunday.
 - Do not repeat the same structure every day. Mix training, diet, recovery, discipline, and intelligence work based on the profile.
 - If the player prefers gym and the plan calls for several weekly gym sessions, place harder gym work on only some days and use walks, mobility, or recovery on the other days.
 - When assigning workouts, prefer detailed exercise language with sets, reps, or duration so the player can act on it immediately.

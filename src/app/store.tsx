@@ -14,6 +14,10 @@ import type {
   AiWeeklyPlan,
   AppState,
   ArtifactKey,
+  DietFeedback,
+  FoodJournalEntry,
+  HouseholdTaskEntry,
+  HouseholdTaskKind,
   MultiUserData,
   SpecialQuestTemplate,
   Stats,
@@ -22,7 +26,11 @@ import type {
   WorkoutJournalEntry,
 } from "./types";
 
-import { getArtifactMeta } from "./artifacts";
+import {
+  getArtifactMeta,
+  getNewArtifactUnlocks,
+  unlockArtifacts,
+} from "./artifacts";
 
 import {
   addStatRewards,
@@ -39,6 +47,7 @@ import {
   getNextAiQuestIndex,
   getPreviewSpecialQuests,
   getQuestStatRewards,
+  getTimestampString,
   getTodayString,
   getYesterdayString,
   normalizeStats,
@@ -48,6 +57,7 @@ import {
 } from "./quest-engine";
 import { useAuth } from "./auth-context";
 import { getSupabaseBrowserClient } from "./lib/supabase/client";
+import { shouldAssignSpecialQuest } from "./schedule";
 
 const STORAGE_KEY = "the-system-multi-user-data";
 const SAVE_DELAY_MS = 600;
@@ -160,6 +170,29 @@ function getUserStatePayload(user: UserRecord) {
     active_effects_json: user.activeEffects,
     app_state_json: user,
     updated_at: new Date().toISOString(),
+  };
+}
+
+function applyArtifactUnlockRewards(user: UserRecord): UserRecord {
+  const unlockedKeys = getNewArtifactUnlocks(user);
+
+  if (unlockedKeys.length === 0) return user;
+
+  const nextArtifacts = unlockArtifacts(user.artifacts, unlockedKeys);
+  const nextLog = unlockedKeys.reduce((log, key) => {
+    const meta = getArtifactMeta(key);
+
+    return appendLog(log, {
+      type: "artifact",
+      title: `Artifact Unlocked: ${meta.title}`,
+      details: `${meta.rarity.toUpperCase()} discovery. ${meta.lore}`,
+    });
+  }, user.log);
+
+  return {
+    ...user,
+    artifacts: nextArtifacts,
+    log: nextLog,
   };
 }
 
@@ -390,7 +423,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      return {
+      return applyArtifactUnlockRewards({
         ...current,
         quests: nextQuests,
         totalXp: current.totalXp + xpToAdd,
@@ -399,7 +432,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         stats: nextStats,
         history: nextHistory,
         log: nextLog,
-      };
+      });
     });
   }
 
@@ -423,7 +456,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         details: `Completed for +${current.specialQuest.xp} XP`,
       });
 
-      return {
+      return applyArtifactUnlockRewards({
         ...current,
         totalXp: current.totalXp + current.specialQuest.xp,
         stats: nextStats,
@@ -435,7 +468,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           awardedToday: true,
           status: "completed",
         },
-      };
+      });
     });
   }
 
@@ -546,7 +579,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateActiveUser((current) => {
       const today = getTodayString();
-      const firstAiQuest = getActiveAiQuest(analysis, 0);
+      const canAssignSpecial = shouldAssignSpecialQuest(today, current.profile);
+      const firstAiQuestIndex = canAssignSpecial
+        ? getNextAiQuestIndex(
+            analysis,
+            -1,
+            [],
+            current.profile,
+            current.specialQuestMemory
+          )
+        : 0;
+      const firstAiQuest = canAssignSpecial
+        ? getActiveAiQuest(analysis, firstAiQuestIndex)
+        : null;
       const generatedSpecialQuest = firstAiQuest
         ? createSpecialQuestFromAiSuggestion(
             firstAiQuest,
@@ -583,7 +628,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return {
         ...current,
         aiAnalysis: analysis,
-        aiQuestIndex: 0,
+        aiQuestIndex: firstAiQuestIndex,
         specialQuest: nextSpecialQuest,
         specialQuestMemory: firstAiQuest
           ? appendSpecialQuestMemory(current.specialQuestMemory, nextSpecialQuest)
@@ -676,6 +721,140 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
+  function addHouseholdTask(kind: HouseholdTaskKind, title: string) {
+    const trimmed = title.trim();
+    if (!activeUser || !trimmed) return;
+
+    updateActiveUser((current) => {
+      const nextTask: HouseholdTaskEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        kind,
+        title: trimmed,
+        completed: false,
+        awarded: false,
+        createdAt: getTimestampString(),
+        completedAt: null,
+      };
+
+      return {
+        ...current,
+        householdTasks: [nextTask, ...(current.householdTasks ?? [])].slice(
+          0,
+          200
+        ),
+      };
+    });
+  }
+
+  function completeHouseholdTask(id: string) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const completedTask = (current.householdTasks ?? []).find(
+        (task) => task.id === id && !task.completed
+      );
+
+      if (!completedTask) return current;
+
+      const nextTasks = (current.householdTasks ?? []).map((task) => {
+        if (task.id !== id || task.completed) return task;
+
+        return {
+          ...task,
+          completed: true,
+          awarded: true,
+          completedAt: getTimestampString(),
+        };
+      });
+
+      const isChore = completedTask.kind === "chore";
+      const xp = isChore ? 20 : 8;
+      const rewards: Partial<Stats> = isChore
+        ? { discipline: 2 }
+        : { discipline: 1, vitality: 1 };
+      const nextStats = addStatRewards(current.stats, rewards);
+      const nextHistory = appendHistoryEntry(current.history, nextStats);
+      const nextLog = appendLog(current.log, {
+        type: "household_task",
+        title: completedTask.title,
+        details: `${isChore ? "Chore" : "Grocery item"} completed for +${xp} XP.`,
+      });
+
+      return applyArtifactUnlockRewards({
+        ...current,
+        householdTasks: nextTasks,
+        totalXp: current.totalXp + xp,
+        stats: nextStats,
+        history: nextHistory,
+        log: nextLog,
+      });
+    });
+  }
+
+  function deleteHouseholdTask(id: string) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => ({
+      ...current,
+      householdTasks: (current.householdTasks ?? []).filter(
+        (task) => task.id !== id
+      ),
+    }));
+  }
+
+  function addFoodJournalEntry(entry: Omit<FoodJournalEntry, "id">) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const nextEntry: FoodJournalEntry = {
+        ...entry,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
+
+      return {
+        ...current,
+        foodJournal: [nextEntry, ...(current.foodJournal ?? [])].slice(0, 500),
+        log: appendLog(current.log, {
+          type: "nutrition",
+          title: `${nextEntry.foodName} logged`,
+          details:
+            `${nextEntry.date} · ${nextEntry.quantity || "portion"} · ` +
+            `${nextEntry.calories} kcal, ${nextEntry.protein}g protein`,
+        }),
+      };
+    });
+  }
+
+  function deleteFoodJournalEntry(id: string) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => ({
+      ...current,
+      foodJournal: (current.foodJournal ?? []).filter(
+        (entry) => entry.id !== id
+      ),
+    }));
+  }
+
+  function saveDietFeedback(feedback: DietFeedback) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => ({
+      ...current,
+      dietFeedback: [
+        feedback,
+        ...(current.dietFeedback ?? []).filter(
+          (entry) => entry.date !== feedback.date
+        ),
+      ].slice(0, 30),
+      log: appendLog(current.log, {
+        type: "nutrition",
+        title: `Diet Feedback: ${feedback.date}`,
+        details: feedback.summary,
+      }),
+    }));
+  }
+
   function activateArtifact(key: ArtifactKey) {
     if (!activeUser) return;
 
@@ -685,7 +864,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const artifact = current.artifacts.find((item) => item.key === key);
 
-      if (!artifact || artifact.quantity <= 0) {
+      if (!artifact || !artifact.unlocked || !artifact.usable || artifact.quantity <= 0) {
         return current;
       }
 
@@ -836,7 +1015,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateActiveUser((current) => {
       const today = getTodayString();
 
-      if (current.aiAnalysis?.specialQuests?.length) {
+      if (
+        shouldAssignSpecialQuest(today, current.profile) &&
+        current.aiAnalysis?.specialQuests?.length
+      ) {
         const recentTitles = [
           current.specialQuest.title,
           ...current.log.slice(0, 8).map((entry) => entry.title),
@@ -921,6 +1103,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         stats: activeUser?.stats ?? defaultStats,
         history: activeUser?.history ?? [],
         workoutJournal: activeUser?.workoutJournal ?? [],
+        householdTasks: activeUser?.householdTasks ?? [],
+        foodJournal: activeUser?.foodJournal ?? [],
+        dietFeedback: activeUser?.dietFeedback ?? [],
         specialQuest: activeUser?.specialQuest ?? null,
         penaltyNotice: activeUser?.penaltyNotice ?? null,
         log: activeUser?.log ?? [],
@@ -945,6 +1130,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateAiWeeklyPlan,
         updateDailyHp,
         addWorkoutJournalEntry,
+        addHouseholdTask,
+        completeHouseholdTask,
+        deleteHouseholdTask,
+        addFoodJournalEntry,
+        deleteFoodJournalEntry,
+        saveDietFeedback,
         activateArtifact,
 
         createUser,

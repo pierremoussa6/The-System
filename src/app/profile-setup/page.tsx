@@ -1,8 +1,11 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../store";
 import type { AiSystemAnalysis, UserProfile } from "../types";
+import { defaultProfile } from "../quest-engine";
+import { getIncompleteProfileReasons, isProfileComplete } from "../profile";
 import PanelCard from "../components/PanelCard";
 import ActionButton from "../components/ActionButton";
 
@@ -10,12 +13,130 @@ type ProfileFormProps = {
   initialProfile: UserProfile;
   onSave: (profile: UserProfile) => void;
   onAnalysisReady: (analysis: AiSystemAnalysis | null) => void;
+  isInitiation: boolean;
 };
+
+function FieldLabel({
+  children,
+  help,
+}: {
+  children: ReactNode;
+  help?: string;
+}) {
+  return (
+    <span className="mb-2 flex items-center gap-2 text-zinc-400">
+      <span>{children}</span>
+      {help && (
+        <span className="group relative inline-flex">
+          <button
+            type="button"
+            aria-label={`Help: ${children}`}
+            className="flex h-5 w-5 items-center justify-center rounded-full border border-zinc-600 bg-zinc-800 text-xs text-zinc-300 hover:border-blue-400 hover:text-blue-200"
+          >
+            ?
+          </button>
+          <span className="pointer-events-none absolute left-1/2 top-7 z-20 hidden w-64 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-xs leading-5 text-zinc-200 shadow-xl group-hover:block group-focus-within:block">
+            {help}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function clampNumber(value: number, fallback: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
+function NumericProfileInput({
+  value,
+  onChange,
+  fallback,
+  min,
+  max,
+  step = 1,
+  placeholder,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  fallback: number;
+  min: number;
+  max: number;
+  step?: number;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+      value={Number.isFinite(value) ? String(value) : ""}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        onChange(nextValue === "" ? Number.NaN : Number(nextValue));
+      }}
+      onBlur={() => onChange(clampNumber(value, fallback, min, max))}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function sanitizeProfileForSave(profile: UserProfile): UserProfile {
+  return {
+    ...profile,
+    goal: profile.motivationWhy.trim() || profile.goal.trim(),
+    age: Math.round(clampNumber(profile.age, defaultProfile.age, 13, 100)),
+    weightKg:
+      Math.round(clampNumber(profile.weightKg, defaultProfile.weightKg, 30, 300) * 10) /
+      10,
+    heightCm: Math.round(
+      clampNumber(profile.heightCm, defaultProfile.heightCm, 120, 230)
+    ),
+    sleepTargetHours:
+      Math.round(
+        clampNumber(
+          profile.sleepTargetHours,
+          defaultProfile.sleepTargetHours,
+          4,
+          12
+        ) * 10
+      ) / 10,
+    availableMinutesWeekday: Math.round(
+      clampNumber(
+        profile.availableMinutesWeekday,
+        defaultProfile.availableMinutesWeekday,
+        5,
+        240
+      )
+    ),
+    availableMinutesWeekend: Math.round(
+      clampNumber(
+        profile.availableMinutesWeekend,
+        defaultProfile.availableMinutesWeekend,
+        5,
+        480
+      )
+    ),
+    customSpecialQuestIntervalDays: Math.round(
+      clampNumber(
+        profile.customSpecialQuestIntervalDays,
+        defaultProfile.customSpecialQuestIntervalDays,
+        2,
+        30
+      )
+    ),
+    onboardingCompleted: true,
+  };
+}
 
 function ProfileForm({
   initialProfile,
   onSave,
   onAnalysisReady,
+  isInitiation,
 }: ProfileFormProps) {
   const [form, setForm] = useState<UserProfile>(initialProfile);
   const [saved, setSaved] = useState(false);
@@ -56,11 +177,7 @@ function ProfileForm({
   }
 
   async function handleSave() {
-    const finalProfile: UserProfile = {
-      ...form,
-      goal: form.motivationWhy.trim() || form.goal,
-      onboardingCompleted: true,
-    };
+    const finalProfile = sanitizeProfileForSave(form);
 
     onSave(finalProfile);
     setSaved(true);
@@ -126,7 +243,9 @@ function ProfileForm({
 
           <div className="space-y-4">
             <div>
-              <label className="mb-2 block text-zinc-400">Name</label>
+              <FieldLabel help="The name shown across your profile, quests, logs, and admin view.">
+                Name
+              </FieldLabel>
               <input
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.name}
@@ -135,9 +254,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="This is the anchor the AI and quest engine use when choosing tone, pressure, and reminders.">
                 Why do you want to be better?
-              </label>
+              </FieldLabel>
               <textarea
                 className="min-h-25 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.motivationWhy}
@@ -150,9 +269,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="Used as your Main Job path so quests can support your real responsibilities.">
                 Real-Life Profession or Role
-              </label>
+              </FieldLabel>
               <input
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.profession}
@@ -165,7 +284,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Age Range</label>
+              <FieldLabel help="A broad range for tone and safety checks. Exact age below improves nutrition targets.">
+                Age Range
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.ageRange}
@@ -185,7 +306,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Preferred Build</label>
+              <FieldLabel help="Your preferred RPG growth style. It influences quest rewards and special quest selection.">
+                Preferred Build
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.preferredBuild}
@@ -205,7 +328,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Difficulty</label>
+              <FieldLabel help="Controls XP scaling, penalty pressure, and how intense the System sounds.">
+                Difficulty
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.difficulty}
@@ -223,7 +348,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">System Tone</label>
+              <FieldLabel help="Controls whether guidance feels strict, balanced, or intense.">
+                System Tone
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.systemTone}
@@ -249,7 +376,9 @@ function ProfileForm({
 
           <div className="space-y-4">
             <div>
-              <label className="mb-2 block text-zinc-400">Fitness Level</label>
+              <FieldLabel help="Used to scale workout suggestions and avoid assigning advanced fitness quests too early.">
+                Fitness Level
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.fitnessLevel}
@@ -266,8 +395,55 @@ function ProfileForm({
               </select>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <FieldLabel help="Exact age is used for nutrition targets. You can clear the field while typing; fallback applies on blur or save.">
+                  Age
+                </FieldLabel>
+                <NumericProfileInput
+                  value={form.age}
+                  onChange={(value) => updateField("age", value)}
+                  fallback={defaultProfile.age}
+                  min={13}
+                  max={100}
+                  placeholder="30"
+                />
+              </div>
+
+              <div>
+                <FieldLabel help="Used for protein and calorie target estimates.">
+                  Weight (kg)
+                </FieldLabel>
+                <NumericProfileInput
+                  value={form.weightKg}
+                  onChange={(value) => updateField("weightKg", value)}
+                  fallback={defaultProfile.weightKg}
+                  min={30}
+                  max={300}
+                  step={0.1}
+                  placeholder="75"
+                />
+              </div>
+
+              <div>
+                <FieldLabel help="Used with age and weight to estimate daily nutrition targets.">
+                  Height (cm)
+                </FieldLabel>
+                <NumericProfileInput
+                  value={form.heightCm}
+                  onChange={(value) => updateField("heightCm", value)}
+                  fallback={defaultProfile.heightCm}
+                  min={120}
+                  max={230}
+                  placeholder="175"
+                />
+              </div>
+            </div>
+
             <div>
-              <label className="mb-2 block text-zinc-400">Sleep Quality</label>
+              <FieldLabel help="Used to decide when recovery quests should be prioritized over harder pressure.">
+                Sleep Quality
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.sleepQuality}
@@ -285,21 +461,23 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Target Sleep Hours</label>
-              <input
-                type="number"
-                min={4}
-                max={10}
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+              <FieldLabel help="Your target sleep window. The field can be cleared while typing; validation happens on blur or save.">
+                Target Sleep Hours
+              </FieldLabel>
+              <NumericProfileInput
                 value={form.sleepTargetHours}
-                onChange={(e) =>
-                  updateField("sleepTargetHours", Number(e.target.value))
-                }
+                onChange={(value) => updateField("sleepTargetHours", value)}
+                fallback={defaultProfile.sleepTargetHours}
+                min={4}
+                max={12}
+                step={0.5}
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Energy Pattern</label>
+              <FieldLabel help="Helps weekly plans place harder work when you are more likely to have energy.">
+                Energy Pattern
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.energyPattern}
@@ -318,7 +496,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Stress Level</label>
+              <FieldLabel help="Used to soften or intensify quest pressure and penalties.">
+                Stress Level
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.stressLevel}
@@ -336,34 +516,53 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="Used to estimate calorie targets and how much training pressure is realistic.">
+                Activity Level
+              </FieldLabel>
+              <select
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.activityLevel}
+                onChange={(e) =>
+                  updateField(
+                    "activityLevel",
+                    e.target.value as UserProfile["activityLevel"]
+                  )
+                }
+              >
+                <option value="Low">Low</option>
+                <option value="Moderate">Moderate</option>
+                <option value="High">High</option>
+                <option value="Very High">Very High</option>
+              </select>
+            </div>
+
+            <div>
+              <FieldLabel help="Your normal weekday time budget. Quests and workouts should fit this number.">
                 Available Minutes on Weekdays
-              </label>
-              <input
-                type="number"
+              </FieldLabel>
+              <NumericProfileInput
+                value={form.availableMinutesWeekday}
+                onChange={(value) =>
+                  updateField("availableMinutesWeekday", value)
+                }
+                fallback={defaultProfile.availableMinutesWeekday}
                 min={5}
                 max={240}
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
-                value={form.availableMinutesWeekday}
-                onChange={(e) =>
-                  updateField("availableMinutesWeekday", Number(e.target.value))
-                }
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="Your weekend time budget for longer workouts, chores, study, or recovery.">
                 Available Minutes on Weekends
-              </label>
-              <input
-                type="number"
+              </FieldLabel>
+              <NumericProfileInput
+                value={form.availableMinutesWeekend}
+                onChange={(value) =>
+                  updateField("availableMinutesWeekend", value)
+                }
+                fallback={defaultProfile.availableMinutesWeekend}
                 min={5}
                 max={480}
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
-                value={form.availableMinutesWeekend}
-                onChange={(e) =>
-                  updateField("availableMinutesWeekend", Number(e.target.value))
-                }
               />
             </div>
           </div>
@@ -376,7 +575,9 @@ function ProfileForm({
 
           <div className="space-y-4">
             <div>
-              <label className="mb-2 block text-zinc-400">Main Improvement Area</label>
+              <FieldLabel help="This tells daily and special quests which life axis should get extra pressure.">
+                Main Improvement Area
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.mainImprovementArea}
@@ -396,7 +597,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Study Interest</label>
+              <FieldLabel help="Used for study quests and your inferred Secondary Job themes.">
+                Study Interest
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.studyInterest}
@@ -429,9 +632,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="These feed the Secondary Job path and hobby-based special quests.">
                 Hobbies and Side Interests
-              </label>
+              </FieldLabel>
               <textarea
                 className="min-h-24 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.hobbies}
@@ -444,9 +647,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="Used when the System creates self-improvement and learning quests.">
                 Extra Study or Self-Development Interests
-              </label>
+              </FieldLabel>
               <textarea
                 className="min-h-24 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.customInterests}
@@ -456,7 +659,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Motivation Style</label>
+              <FieldLabel help="Controls whether rewards, challenge, story, discipline, or balance shape the wording.">
+                Motivation Style
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.motivationStyle}
@@ -476,7 +681,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Penalty Style</label>
+              <FieldLabel help="Controls corrective action intensity when a special quest is missed.">
+                Penalty Style
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.penaltyStyle}
@@ -502,7 +709,9 @@ function ProfileForm({
 
           <div className="space-y-4">
             <div>
-              <label className="mb-2 block text-zinc-400">Workout Preference</label>
+              <FieldLabel help="This is the main training style used by the workout plan and workout-day quests.">
+                Workout Preference
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.workoutPreference}
@@ -523,7 +732,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Diet Style</label>
+              <FieldLabel help="Used for nutrition targets, diet quests, and AI diet feedback.">
+                Diet Style
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.dietStyle}
@@ -543,7 +754,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">Dietary Restrictions</label>
+              <FieldLabel help="All diet recommendations should avoid or account for these restrictions.">
+                Dietary Restrictions
+              </FieldLabel>
               <input
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.dietaryRestrictions}
@@ -627,9 +840,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="These are treated as the source of truth for workout days. Workout quests should not appear on other days.">
                 Preferred Days for Workout
-              </label>
+              </FieldLabel>
               <textarea
                 className="min-h-20 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.preferredWorkoutDays}
@@ -661,9 +874,9 @@ function ProfileForm({
             </div>
 
             <div>
-              <label className="mb-2 block text-zinc-400">
+              <FieldLabel help="This controls the type mix when special quests are generated.">
                 Special Quest Rotation
-              </label>
+              </FieldLabel>
               <select
                 className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 value={form.questRotationPreference}
@@ -682,6 +895,44 @@ function ProfileForm({
                 <option value="Hybrid">Hybrid priority</option>
               </select>
             </div>
+
+            <div>
+              <FieldLabel help="Controls how often special quests appear. They only appear daily when you choose Every day.">
+                Special Quest Frequency
+              </FieldLabel>
+              <select
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                value={form.specialQuestFrequency}
+                onChange={(e) =>
+                  updateField(
+                    "specialQuestFrequency",
+                    e.target.value as UserProfile["specialQuestFrequency"]
+                  )
+                }
+              >
+                <option value="every_day">Every day</option>
+                <option value="every_3_days">Every 3 days</option>
+                <option value="weekly">Weekly</option>
+                <option value="custom">Custom frequency</option>
+              </select>
+            </div>
+
+            {form.specialQuestFrequency === "custom" && (
+              <div>
+                <FieldLabel help="Enter the number of days between special quests. The System accepts 2 to 30 days.">
+                  Custom Frequency (days)
+                </FieldLabel>
+                <NumericProfileInput
+                  value={form.customSpecialQuestIntervalDays}
+                  onChange={(value) =>
+                    updateField("customSpecialQuestIntervalDays", value)
+                  }
+                  fallback={defaultProfile.customSpecialQuestIntervalDays}
+                  min={2}
+                  max={30}
+                />
+              </div>
+            )}
 
             <div>
               <label className="mb-2 block text-zinc-400">
@@ -713,13 +964,15 @@ function ProfileForm({
           )}
 
           <ActionButton onClick={handleSave} variant="purple">
-            Save Survey
+            {isInitiation ? "Complete Initiation" : "Save Preferences"}
           </ActionButton>
         </div>
 
         {saved && (
           <p className="text-green-400">
-            Survey saved. The System now has a stronger profile to personalize your experience.
+            {isInitiation
+              ? "Initiation saved. The System now has a stronger profile to personalize your experience."
+              : "Preferences saved. Quests, workout guidance, and nutrition targets have been recalibrated."}
           </p>
         )}
 
@@ -751,16 +1004,36 @@ export default function ProfileSetupPage() {
     );
   }
 
+  const incompleteReasons = getIncompleteProfileReasons(profile);
+  const initiationRequired = !isProfileComplete(profile);
+
   return (
     <div className="max-w-3xl space-y-6">
-      <h1 className="mb-6 text-3xl text-blue-400">System Initiation Survey</h1>
+      <h1 className="mb-6 text-3xl text-blue-400">
+        {initiationRequired ? "System Initiation Survey" : "Profile Preferences"}
+      </h1>
       <p className="text-zinc-400">
-        Complete your hunter profile so The System can tailor quests, training pressure, diet direction, and progression style.
+        {initiationRequired
+          ? "Complete your hunter profile so The System can tailor quests, training pressure, diet direction, and progression style."
+          : "Your profile is complete. Update preferences here when your schedule, goals, or nutrition targets change."}
       </p>
+      {initiationRequired && (
+        <PanelCard className="border-yellow-500">
+          <p className="font-medium text-yellow-200">
+            Initiation is required before the full app unlocks.
+          </p>
+          <div className="space-y-1 text-sm text-zinc-300">
+            {incompleteReasons.map((reason) => (
+              <p key={reason}>{reason}</p>
+            ))}
+          </div>
+        </PanelCard>
+      )}
       <ProfileForm
         initialProfile={profile}
         onSave={updateProfile}
         onAnalysisReady={updateAiAnalysis}
+        isInitiation={initiationRequired}
       />
     </div>
   );

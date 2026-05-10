@@ -70,6 +70,7 @@ export default function SidebarNav() {
   const pathname = usePathname();
   const { profile, status, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isWorkoutPage = pathname === "/workout";
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -87,6 +88,12 @@ export default function SidebarNav() {
     setMobileOpen(false);
   }
 
+  function scrollToWorkoutSection(id: string) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <>
       <header className="sticky top-0 z-40 flex items-center justify-between border-b border-zinc-800 bg-black/90 px-4 py-4 backdrop-blur md:hidden">
@@ -97,13 +104,33 @@ export default function SidebarNav() {
           The System
         </Link>
 
-        <button
-          type="button"
-          onClick={() => setMobileOpen(true)}
-          className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:border-blue-400 hover:text-blue-300"
-        >
-          Menu
-        </button>
+        <div className="flex items-center gap-2">
+          {isWorkoutPage && (
+            <>
+              <button
+                type="button"
+                onClick={() => scrollToWorkoutSection("workout-journal")}
+                className="rounded-xl border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200 transition hover:border-emerald-400 hover:text-emerald-100"
+              >
+                Journal
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollToWorkoutSection("workout-exercises-active")}
+                className="rounded-xl border border-purple-500/50 bg-purple-500/10 px-3 py-2 text-sm font-medium text-purple-200 transition hover:border-purple-400 hover:text-purple-100"
+              >
+                Exercises
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:border-blue-400 hover:text-blue-300"
+          >
+            Menu
+          </button>
+        </div>
       </header>
 
       {mobileOpen && (

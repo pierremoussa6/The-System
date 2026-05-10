@@ -15,6 +15,7 @@ export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -25,10 +26,13 @@ export default function AuthPage() {
 
     try {
       if (mode === "sign-in") {
-        await signIn(email, password);
+        await signIn(email, password, rememberMe);
       } else {
         const signUpMessage = await signUp(email, password, displayName);
-        setMessage(signUpMessage ?? "Account created. Enter The System.");
+        setMessage(
+          signUpMessage ??
+            "Account created. The System Creator must approve access before the full app unlocks."
+        );
       }
     } catch (authError) {
       setMessage(
@@ -119,6 +123,17 @@ export default function AuthPage() {
               placeholder="Minimum 6 characters"
             />
           </label>
+
+          {mode === "sign-in" && (
+            <label className="flex items-center gap-3 rounded border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+              />
+              <span>Stay logged in</span>
+            </label>
+          )}
 
           {(message || error) && (
             <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">

@@ -5,11 +5,16 @@ create table if not exists public.profiles (
   email text not null,
   display_name text not null default 'Player',
   role text not null default 'player' check (role in ('creator', 'player')),
+  account_status text not null default 'pending_approval' check (account_status in ('pending_approval', 'approved', 'rejected')),
   timezone text not null default 'Europe/Stockholm',
   reminders_enabled boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles
+add column if not exists account_status text not null default 'pending_approval'
+check (account_status in ('pending_approval', 'approved', 'rejected'));
 
 create table if not exists public.user_state (
   user_id uuid primary key references public.profiles(id) on delete cascade,
@@ -122,6 +127,16 @@ create table if not exists public.reminder_logs (
   unique (user_id, reminder_date, channel)
 );
 
+create table if not exists public.admin_notifications (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid references public.profiles(id) on delete cascade,
+  notification_type text not null,
+  title text not null,
+  details text not null,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create or replace function public.is_creator(check_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -159,24 +174,42 @@ begin
 
     if new.email = 'pierremoussa6@gmail.com' then
       new.role := 'creator';
+      new.account_status := 'approved';
     elsif not (is_system_actor or acting_as_creator) then
       new.role := 'player';
+      new.account_status := 'pending_approval';
     else
       new.role := case when new.role = 'creator' then 'creator' else 'player' end;
+      if new.role = 'creator' then
+        new.account_status := 'approved';
+      else
+        new.account_status := coalesce(nullif(new.account_status, ''), 'pending_approval');
+      end if;
     end if;
   else
     if request_user_id = old.id and not acting_as_creator and not is_system_actor then
       new.email := old.email;
       new.role := old.role;
+      new.account_status := old.account_status;
     else
       new.email := lower(trim(coalesce(nullif(new.email, ''), old.email)));
 
       if new.email = 'pierremoussa6@gmail.com' then
         new.role := 'creator';
+        new.account_status := 'approved';
       elsif acting_as_creator or is_system_actor then
         new.role := case when new.role = 'creator' then 'creator' else 'player' end;
+        if new.role = 'creator' then
+          new.account_status := 'approved';
+        else
+          new.account_status := case
+            when new.account_status in ('pending_approval', 'approved', 'rejected') then new.account_status
+            else old.account_status
+          end;
+        end if;
       else
         new.role := old.role;
+        new.account_status := old.account_status;
       end if;
     end if;
   end if;
@@ -193,6 +226,39 @@ before insert or update on public.profiles
 for each row
 execute function public.apply_profile_guardrails();
 
+create or replace function public.notify_pending_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.account_status = 'pending_approval' then
+    insert into public.admin_notifications (
+      profile_id,
+      notification_type,
+      title,
+      details
+    )
+    values (
+      new.id,
+      'registration_pending',
+      'New Player Awaiting Approval',
+      new.display_name || ' (' || new.email || ') is waiting for creator approval.'
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_notify_pending on public.profiles;
+
+create trigger profiles_notify_pending
+after insert on public.profiles
+for each row
+execute function public.notify_pending_profile();
+
 alter table public.profiles enable row level security;
 alter table public.user_state enable row level security;
 alter table public.daily_quests enable row level security;
@@ -202,6 +268,7 @@ alter table public.artifacts enable row level security;
 alter table public.system_logs enable row level security;
 alter table public.achievements enable row level security;
 alter table public.reminder_logs enable row level security;
+alter table public.admin_notifications enable row level security;
 
 drop policy if exists "profiles_select_own_or_creator" on public.profiles;
 drop policy if exists "profiles_insert_own" on public.profiles;
@@ -214,6 +281,7 @@ drop policy if exists "artifacts_own_or_creator" on public.artifacts;
 drop policy if exists "system_logs_own_or_creator" on public.system_logs;
 drop policy if exists "achievements_own_or_creator" on public.achievements;
 drop policy if exists "reminder_logs_own_or_creator" on public.reminder_logs;
+drop policy if exists "admin_notifications_creator" on public.admin_notifications;
 
 create policy "profiles_select_own_or_creator"
 on public.profiles for select
@@ -268,6 +336,21 @@ on public.reminder_logs for all
 using (auth.uid() = user_id or public.is_creator())
 with check (auth.uid() = user_id or public.is_creator());
 
+create policy "admin_notifications_creator"
+on public.admin_notifications for all
+using (public.is_creator())
+with check (public.is_creator());
+
 update public.profiles
-set role = 'creator'
+set role = 'creator',
+    account_status = 'approved'
 where lower(email) = 'pierremoussa6@gmail.com';
+
+update public.profiles
+set account_status = 'approved'
+where account_status is null
+   or exists (
+    select 1
+    from public.user_state
+    where public.user_state.user_id = public.profiles.id
+   );

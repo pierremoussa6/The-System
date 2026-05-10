@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../store";
 import { getPersonalization } from "../quest-engine";
 import { buildWorkoutProgram } from "../workout-system";
+import type { AiWeeklyPlan, UserProfile } from "../types";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
@@ -37,6 +38,9 @@ export default function WorkoutPage() {
     workoutJournal,
     addWorkoutJournalEntry,
     regenerateSpecialQuest,
+    updateProfile,
+    updateAiAnalysis,
+    updateAiWeeklyPlan,
   } = useApp();
 
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -46,6 +50,21 @@ export default function WorkoutPage() {
   const [reps, setReps] = useState("8-10");
   const [weightKg, setWeightKg] = useState("");
   const [notes, setNotes] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [adjustmentRequest, setAdjustmentRequest] = useState("");
+  const [adjustmentMessage, setAdjustmentMessage] = useState("");
+  const [isAdjustingPlan, setIsAdjustingPlan] = useState(false);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+
+    const intervalId = window.setInterval(() => {
+      setElapsedSeconds((current) => current + 1);
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [timerRunning]);
 
   const workoutMissions = useMemo(() => {
     if (!aiWeeklyPlan?.missions) return [];
@@ -88,9 +107,107 @@ export default function WorkoutPage() {
     setNotes("");
   }
 
+  function formatTimer(seconds: number) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    return [hours, minutes, secs]
+      .map((value) => String(value).padStart(2, "0"))
+      .join(":");
+  }
+
+  function scrollToSection(id: string) {
+    document
+      .getElementById(id)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function handleAdjustWorkoutPlan() {
+    if (!profile) return;
+    if (!adjustmentRequest.trim()) return;
+
+    setIsAdjustingPlan(true);
+    setAdjustmentMessage("");
+
+    try {
+      const response = await fetch("/api/system/adjust-workout-plan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          request: adjustmentRequest,
+          profile,
+          aiAnalysis,
+          aiWeeklyPlan,
+          program,
+          stats,
+          totalXp,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to adjust workout plan");
+      }
+
+      const data = (await response.json()) as {
+        response: string;
+        profileUpdates: Partial<UserProfile>;
+        workoutDirection: string;
+        weeklyPlan: AiWeeklyPlan | null;
+      };
+
+      const nextProfile: UserProfile = {
+        ...profile,
+        ...data.profileUpdates,
+        onboardingCompleted: true,
+      };
+
+      updateProfile(nextProfile);
+
+      if (aiAnalysis && data.workoutDirection) {
+        updateAiAnalysis({
+          ...aiAnalysis,
+          workoutDirection: data.workoutDirection,
+        });
+      }
+
+      if (data.weeklyPlan) {
+        updateAiWeeklyPlan(data.weeklyPlan);
+      }
+
+      setAdjustmentMessage(data.response);
+      setAdjustmentRequest("");
+    } catch (error) {
+      console.error(error);
+      setAdjustmentMessage(
+        "The AI adjustment failed right now. Your current workout plan was not changed."
+      );
+    } finally {
+      setIsAdjustingPlan(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <h1 className="mb-6 text-3xl text-blue-400">Workout</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl text-blue-400">Workout</h1>
+        <div className="hidden flex-wrap gap-3 md:flex">
+          <ActionButton
+            onClick={() => scrollToSection("workout-journal")}
+            variant="green"
+          >
+            Journal
+          </ActionButton>
+          <ActionButton
+            onClick={() => scrollToSection("workout-exercises-active")}
+            variant="purple"
+          >
+            Exercises
+          </ActionButton>
+        </div>
+      </div>
 
       <PanelCard className="border-blue-500">
         <SectionTitle title="Training Directive" colorClass="text-blue-400" />
@@ -131,7 +248,46 @@ export default function WorkoutPage() {
         </div>
       </PanelCard>
 
-      <PanelCard className="border-purple-500">
+      <PanelCard id="workout-journal" className="border-emerald-500">
+        <SectionTitle title="Workout Timer" colorClass="text-emerald-400" />
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="font-mono text-4xl text-white">
+              {formatTimer(elapsedSeconds)}
+            </p>
+            <p className="mt-1 text-sm text-zinc-400">
+              Track work sets, rest periods, or the full session.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <ActionButton
+              onClick={() => setTimerRunning(true)}
+              variant="green"
+              disabled={timerRunning}
+            >
+              Start
+            </ActionButton>
+            <ActionButton
+              onClick={() => setTimerRunning(false)}
+              variant="gray"
+              disabled={!timerRunning}
+            >
+              Pause
+            </ActionButton>
+            <ActionButton
+              onClick={() => {
+                setTimerRunning(false);
+                setElapsedSeconds(0);
+              }}
+              variant="red"
+            >
+              Reset
+            </ActionButton>
+          </div>
+        </div>
+      </PanelCard>
+
+      <PanelCard className="border-purple-500" id="workout-exercises">
         <SectionTitle title="12-Week Program" colorClass="text-purple-400" />
         <div className="space-y-4">
           <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
@@ -144,6 +300,11 @@ export default function WorkoutPage() {
           {program.phases.map((phase) => (
             <div
               key={phase.name}
+              id={
+                phase.name === program.currentPhaseLabel
+                  ? "workout-exercises-active"
+                  : undefined
+              }
               className="rounded-xl border border-zinc-700 bg-zinc-900 p-4"
             >
               <p className="text-lg font-semibold text-white">{phase.name}</p>
@@ -352,6 +513,33 @@ export default function WorkoutPage() {
             </p>
           </div>
         )}
+      </PanelCard>
+
+      <PanelCard className="border-sky-500">
+        <SectionTitle
+          title="AI Workout Plan Adjustment"
+          colorClass="text-sky-400"
+        />
+        <div className="space-y-3">
+          <textarea
+            value={adjustmentRequest}
+            onChange={(event) => setAdjustmentRequest(event.target.value)}
+            className="min-h-28 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+            placeholder="Ask for a change: replace squats, move Monday to Tuesday, reduce volume this week, avoid shoulder pain..."
+          />
+          <ActionButton
+            onClick={handleAdjustWorkoutPlan}
+            variant="blue"
+            disabled={isAdjustingPlan || !adjustmentRequest.trim()}
+          >
+            {isAdjustingPlan ? "Adjusting Plan..." : "Update Workout Plan"}
+          </ActionButton>
+          {adjustmentMessage && (
+            <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sky-100">
+              {adjustmentMessage}
+            </div>
+          )}
+        </div>
       </PanelCard>
 
       <PanelCard className="border-green-500">

@@ -389,6 +389,8 @@ Core analysis rules:
 - Combine explicit answers with reasonable inferences. If uncertain, choose useful but conservative defaults.
 - Treat motivationWhy as the deepest reason the player wants to improve, and use it to shape tone, friction tolerance, and workout adherence strategies.
 - Treat preferredWorkoutDays as hard scheduling guidance when building workout recommendations and workout-flavored quests whenever possible.
+- Treat specialQuestFrequency as hard cadence guidance. Do not imply special quests should appear every day unless it is every_day.
+- Use exact age, weightKg, heightCm, activityLevel, dietStyle, and dietaryRestrictions when creating nutrition guidance.
 - Main Job must reflect the user's real-life profession or closest real-life role.
 - Secondary Job must be a playful RPG identity grounded in hobbies or side interests.
 - If mainJobOverride is provided, use it as the Main Job title unless it is unsafe or clearly unrelated.

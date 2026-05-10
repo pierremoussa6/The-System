@@ -162,6 +162,14 @@ export type DietStyle =
   | "Muscle-Gain"
   | "Balanced";
 
+export type ActivityLevel = "Low" | "Moderate" | "High" | "Very High";
+
+export type SpecialQuestFrequency =
+  | "every_day"
+  | "every_3_days"
+  | "weekly"
+  | "custom";
+
 export type EnergyPattern =
   | "Morning"
   | "Afternoon"
@@ -170,15 +178,27 @@ export type EnergyPattern =
 
 export type StressLevel = "Low" | "Moderate" | "High";
 
-export type ArtifactKey = "rest_day_pass" | "null_sigil" | "xp_rune";
+export type ArtifactKey =
+  | "rest_day_pass"
+  | "focus_shard"
+  | "xp_rune"
+  | "null_sigil"
+  | "discipline_core"
+  | "victory_seal"
+  | "monarch_crown";
 
 export type Artifact = {
   key: ArtifactKey;
   title: string;
   description: string;
   quantity: number;
-  rarity: "common" | "rare" | "epic";
+  rarity: "common" | "rare" | "epic" | "legendary";
   effectLabel: string;
+  lore: string;
+  unlockHint: string;
+  unlocked: boolean;
+  discoveredAt: string | null;
+  usable: boolean;
 };
 
 export type ActiveEffects = {
@@ -345,9 +365,15 @@ export type UserProfile = {
   workoutPreference: WorkoutPreference;
   dietStyle: DietStyle;
   dietaryRestrictions: string;
+  age: number;
+  weightKg: number;
+  heightCm: number;
+  activityLevel: ActivityLevel;
   availableMinutesWeekday: number;
   availableMinutesWeekend: number;
   sleepTargetHours: number;
+  specialQuestFrequency: SpecialQuestFrequency;
+  customSpecialQuestIntervalDays: number;
   energyPattern: EnergyPattern;
   stressLevel: StressLevel;
   wantsDietSupport: boolean;
@@ -406,7 +432,9 @@ export type LogEntryType =
   | "weekly_plan"
   | "system_rotation"
   | "system_notice"
-  | "artifact";
+  | "artifact"
+  | "household_task"
+  | "nutrition";
 
 export type LogEntry = {
   id: string;
@@ -426,6 +454,9 @@ export type UserRecord = {
   stats: Stats;
   history: HistoryEntry[];
   workoutJournal: WorkoutJournalEntry[];
+  householdTasks: HouseholdTaskEntry[];
+  foodJournal: FoodJournalEntry[];
+  dietFeedback: DietFeedback[];
   specialQuest: SpecialQuest;
   penaltyNotice: PenaltyNotice;
   log: LogEntry[];
@@ -464,6 +495,9 @@ export type AppState = {
   stats: Stats;
   history: HistoryEntry[];
   workoutJournal: WorkoutJournalEntry[];
+  householdTasks: HouseholdTaskEntry[];
+  foodJournal: FoodJournalEntry[];
+  dietFeedback: DietFeedback[];
   specialQuest: SpecialQuest | null;
   penaltyNotice: PenaltyNotice;
   log: LogEntry[];
@@ -488,6 +522,12 @@ export type AppState = {
   addWorkoutJournalEntry: (
     entry: Omit<WorkoutJournalEntry, "id">
   ) => void;
+  addHouseholdTask: (kind: HouseholdTaskKind, title: string) => void;
+  completeHouseholdTask: (id: string) => void;
+  deleteHouseholdTask: (id: string) => void;
+  addFoodJournalEntry: (entry: Omit<FoodJournalEntry, "id">) => void;
+  deleteFoodJournalEntry: (id: string) => void;
+  saveDietFeedback: (feedback: DietFeedback) => void;
   activateArtifact: (key: ArtifactKey) => void;
 
   createUser: (name: string) => void;
@@ -496,5 +536,59 @@ export type AppState = {
 
   previewSpecialQuests: () => SpecialQuestTemplate[];
   regenerateSpecialQuest: () => void;
+};
+
+export type HouseholdTaskKind = "chore" | "grocery";
+
+export type HouseholdTaskEntry = {
+  id: string;
+  kind: HouseholdTaskKind;
+  title: string;
+  completed: boolean;
+  awarded: boolean;
+  createdAt: string;
+  completedAt: string | null;
+};
+
+export type FoodJournalEntry = {
+  id: string;
+  date: string;
+  foodName: string;
+  quantity: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber?: number;
+  vitamins?: string;
+  minerals?: string;
+  sugar?: number;
+  sodium?: number;
+};
+
+export type NutritionSummary = {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+};
+
+export type NutritionTargets = {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+};
+
+export type DietFeedback = {
+  date: string;
+  summary: string;
+  suggestedMeals: string[];
 };
 

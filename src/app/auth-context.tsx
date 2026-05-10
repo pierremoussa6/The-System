@@ -15,12 +15,14 @@ import {
 } from "./lib/supabase/client";
 
 export type AppRole = "creator" | "player";
+export type AccountStatus = "pending_approval" | "approved" | "rejected";
 
 export type AuthProfile = {
   id: string;
   email: string;
   display_name: string;
   role: AppRole;
+  account_status: AccountStatus;
   timezone: string;
   reminders_enabled: boolean;
 };
@@ -33,8 +35,9 @@ type AuthContextValue = {
   user: User | null;
   profile: AuthProfile | null;
   isCreator: boolean;
+  isApproved: boolean;
   error: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -50,12 +53,28 @@ function getFallbackDisplayName(user: User) {
   );
 }
 
+function getDefaultAccountStatus(user: User): AccountStatus {
+  return user.email?.toLowerCase() === "pierremoussa6@gmail.com"
+    ? "approved"
+    : "pending_approval";
+}
+
 function normalizeProfile(user: User, profile: Partial<AuthProfile> | null): AuthProfile {
+  const role = profile?.role === "creator" ? "creator" : "player";
+
   return {
     id: user.id,
     email: profile?.email ?? user.email ?? "",
     display_name: profile?.display_name ?? getFallbackDisplayName(user),
-    role: profile?.role === "creator" ? "creator" : "player",
+    role,
+    account_status:
+      role === "creator"
+        ? "approved"
+        : profile?.account_status === "pending_approval" ||
+          profile?.account_status === "rejected" ||
+          profile?.account_status === "approved"
+        ? profile.account_status
+        : "approved",
     timezone: profile?.timezone ?? "Europe/Stockholm",
     reminders_enabled: profile?.reminders_enabled ?? true,
   };
@@ -79,11 +98,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { data, error: selectError } = await supabase
+    const profileQuery = await supabase
       .from("profiles")
-      .select("id,email,display_name,role,timezone,reminders_enabled")
+      .select("id,email,display_name,role,account_status,timezone,reminders_enabled")
       .eq("id", nextUser.id)
       .maybeSingle();
+    let data = profileQuery.data as Partial<AuthProfile> | null;
+    let selectError = profileQuery.error;
+
+    if (selectError && selectError.code === "42703") {
+      const fallback = await supabase
+        .from("profiles")
+        .select("id,email,display_name,role,timezone,reminders_enabled")
+        .eq("id", nextUser.id)
+        .maybeSingle();
+
+      data = fallback.data as Partial<AuthProfile> | null;
+      selectError = fallback.error;
+    }
 
     if (selectError) {
       setError(selectError.message);
@@ -96,12 +128,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const newProfile = normalizeProfile(nextUser, null);
-    const { data: inserted, error: insertError } = await supabase
+    const newProfile: AuthProfile = {
+      ...normalizeProfile(nextUser, null),
+      account_status: getDefaultAccountStatus(nextUser),
+    };
+    const insertQuery = await supabase
       .from("profiles")
       .insert(newProfile)
-      .select("id,email,display_name,role,timezone,reminders_enabled")
+      .select("id,email,display_name,role,account_status,timezone,reminders_enabled")
       .single();
+    let inserted = insertQuery.data as Partial<AuthProfile> | null;
+    let insertError = insertQuery.error;
+
+    if (insertError && insertError.code === "42703") {
+      const legacyProfile = {
+        id: newProfile.id,
+        email: newProfile.email,
+        display_name: newProfile.display_name,
+        role: newProfile.role,
+        timezone: newProfile.timezone,
+        reminders_enabled: newProfile.reminders_enabled,
+      };
+      const fallback = await supabase
+        .from("profiles")
+        .insert(legacyProfile)
+        .select("id,email,display_name,role,timezone,reminders_enabled")
+        .single();
+
+      inserted = fallback.data as Partial<AuthProfile> | null;
+      insertError = fallback.error;
+    }
 
     if (insertError) {
       setError(insertError.message);
@@ -148,11 +204,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadProfile]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, rememberMe = true) => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) throw new Error("Supabase is not configured.");
 
     setError(null);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        "the-system-auth-persistence",
+        rememberMe ? "local" : "session"
+      );
+    }
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -209,6 +271,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null);
     setProfile(null);
     setStatus("anonymous");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("the-system-auth-persistence");
+    }
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -222,6 +287,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       profile,
       isCreator: profile?.role === "creator",
+      isApproved:
+        status === "unconfigured" ||
+        profile?.role === "creator" ||
+        profile?.account_status === "approved",
       error,
       signIn,
       signUp,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useApp } from "../store";
 import { calculateLevel } from "../logic";
 import PanelCard from "../components/PanelCard";
@@ -23,7 +24,13 @@ export default function QuestsPage() {
     profile,
     dailyHp,
     updateDailyHp,
+    householdTasks,
+    addHouseholdTask,
+    completeHouseholdTask,
+    deleteHouseholdTask,
   } = useApp();
+  const [newChore, setNewChore] = useState("");
+  const [newGrocery, setNewGrocery] = useState("");
 
   if (!isLoaded || !specialQuest || !profile) {
     return (
@@ -61,6 +68,21 @@ export default function QuestsPage() {
 
     return statText ? `+${quest.xp} XP / ${statText}` : `+${quest.xp} XP`;
   }
+
+  function handleAddChore() {
+    if (!newChore.trim()) return;
+    addHouseholdTask("chore", newChore);
+    setNewChore("");
+  }
+
+  function handleAddGrocery() {
+    if (!newGrocery.trim()) return;
+    addHouseholdTask("grocery", newGrocery);
+    setNewGrocery("");
+  }
+
+  const chores = householdTasks.filter((task) => task.kind === "chore");
+  const groceries = householdTasks.filter((task) => task.kind === "grocery");
   return (
     <div className="space-y-6">
       <h1 className="text-3xl text-blue-400">Quests</h1>
@@ -252,6 +274,129 @@ export default function QuestsPage() {
               </div>
             </button>
           ))}
+        </div>
+      </PanelCard>
+
+      <PanelCard className="border-emerald-500">
+        <SectionTitle
+          title="Chores and Groceries Journal"
+          colorClass="text-emerald-400"
+        />
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <input
+                value={newChore}
+                onChange={(event) => setNewChore(event.target.value)}
+                className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                placeholder="Add chore"
+              />
+              <ActionButton onClick={handleAddChore} variant="green">
+                Add
+              </ActionButton>
+            </div>
+
+            <div className="space-y-3">
+              {chores.length > 0 ? (
+                chores.map((task) => (
+                  <div
+                    key={task.id}
+                    className={`rounded-lg border p-4 ${
+                      task.completed
+                        ? "border-emerald-500 bg-emerald-950/30"
+                        : "border-zinc-700 bg-zinc-800"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-white">{task.title}</p>
+                        <p className="text-sm text-zinc-400">
+                          Reward: +20 XP / +2 Discipline
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <ActionButton
+                          onClick={() => completeHouseholdTask(task.id)}
+                          variant={task.completed ? "gray" : "green"}
+                          disabled={task.completed}
+                        >
+                          {task.completed ? "Done" : "Complete"}
+                        </ActionButton>
+                        <ActionButton
+                          onClick={() => deleteHouseholdTask(task.id)}
+                          variant="red"
+                        >
+                          Delete
+                        </ActionButton>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+                  <p className="text-zinc-300">No chores added yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <input
+                value={newGrocery}
+                onChange={(event) => setNewGrocery(event.target.value)}
+                className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                placeholder="Add grocery item"
+              />
+              <ActionButton onClick={handleAddGrocery} variant="blue">
+                Add
+              </ActionButton>
+            </div>
+
+            <div className="space-y-3">
+              {groceries.length > 0 ? (
+                groceries.map((task) => (
+                  <div
+                    key={task.id}
+                    className={`rounded-lg border p-4 ${
+                      task.completed
+                        ? "border-blue-500 bg-blue-950/30"
+                        : "border-zinc-700 bg-zinc-800"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-white">{task.title}</p>
+                        <p className="text-sm text-zinc-400">
+                          Reward: +8 XP / +1 Discipline / +1 Vitality
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <ActionButton
+                          onClick={() => completeHouseholdTask(task.id)}
+                          variant={task.completed ? "gray" : "blue"}
+                          disabled={task.completed}
+                        >
+                          {task.completed ? "Bought" : "Complete"}
+                        </ActionButton>
+                        <ActionButton
+                          onClick={() => deleteHouseholdTask(task.id)}
+                          variant="red"
+                        >
+                          Delete
+                        </ActionButton>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+                  <p className="text-zinc-300">No grocery items added yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </PanelCard>
 

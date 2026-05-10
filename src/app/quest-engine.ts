@@ -5,7 +5,9 @@ import type {
   BuildType,
   Difficulty,
   FitnessLevel,
+  FoodJournalEntry,
   HistoryEntry,
+  HouseholdTaskEntry,
   InterestCategory,
   OnboardingAnalysisResult,
   LogEntry,
@@ -25,6 +27,14 @@ import type {
   WorkoutJournalEntry,
 } from "./types";
 import { createStarterArtifacts, normalizeArtifacts } from "./artifacts";
+import {
+  getDayNumberFromDateString,
+  getWeekdayName,
+  isWorkoutDay,
+  isWorkoutRelatedText,
+  shouldAssignSpecialQuest,
+  weekdayOrder,
+} from "./schedule";
 
 export const defaultStats: Stats = {
   strength: 0,
@@ -95,6 +105,73 @@ function normalizeWorkoutJournalEntries(
     .filter((entry) => entry.exerciseName);
 }
 
+function normalizeHouseholdTasks(
+  entries: HouseholdTaskEntry[] | undefined
+): HouseholdTaskEntry[] {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      id:
+        typeof entry.id === "string" && entry.id.trim()
+          ? entry.id
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: entry.kind === "grocery" ? ("grocery" as const) : ("chore" as const),
+      title: typeof entry.title === "string" ? entry.title.trim() : "",
+      completed: Boolean(entry.completed),
+      awarded: Boolean(entry.awarded),
+      createdAt:
+        typeof entry.createdAt === "string" && entry.createdAt.trim()
+          ? entry.createdAt
+          : getTimestampString(),
+      completedAt:
+        typeof entry.completedAt === "string" && entry.completedAt.trim()
+          ? entry.completedAt
+          : null,
+    }))
+    .filter((entry) => entry.title);
+}
+
+function toNutritionNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.round(value * 10) / 10)
+    : 0;
+}
+
+function normalizeFoodJournalEntries(
+  entries: FoodJournalEntry[] | undefined
+): FoodJournalEntry[] {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      id:
+        typeof entry.id === "string" && entry.id.trim()
+          ? entry.id
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      date:
+        typeof entry.date === "string" && entry.date.trim()
+          ? entry.date
+          : getTodayString(),
+      foodName:
+        typeof entry.foodName === "string" ? entry.foodName.trim() : "",
+      quantity:
+        typeof entry.quantity === "string" ? entry.quantity.trim() : "",
+      calories: toNutritionNumber(entry.calories),
+      protein: toNutritionNumber(entry.protein),
+      carbs: toNutritionNumber(entry.carbs),
+      fat: toNutritionNumber(entry.fat),
+      fiber: toNutritionNumber(entry.fiber),
+      vitamins: typeof entry.vitamins === "string" ? entry.vitamins.trim() : "",
+      minerals: typeof entry.minerals === "string" ? entry.minerals.trim() : "",
+      sugar: toNutritionNumber(entry.sugar),
+      sodium: toNutritionNumber(entry.sodium),
+    }))
+    .filter((entry) => entry.foodName);
+}
+
 export const defaultProfile: UserProfile = {
   name: "",
   goal: "",
@@ -120,9 +197,15 @@ export const defaultProfile: UserProfile = {
   workoutPreference: "Mixed",
   dietStyle: "Balanced",
   dietaryRestrictions: "",
+  age: 30,
+  weightKg: 75,
+  heightCm: 175,
+  activityLevel: "Moderate",
   availableMinutesWeekday: 30,
   availableMinutesWeekend: 60,
   sleepTargetHours: 8,
+  specialQuestFrequency: "every_3_days",
+  customSpecialQuestIntervalDays: 3,
   energyPattern: "Evening",
   stressLevel: "Moderate",
   wantsDietSupport: true,
@@ -1000,6 +1083,7 @@ export function appendSpecialQuestMemory(
   quest: SpecialQuestTemplate
 ): SpecialQuestMemory {
   const safeMemory = normalizeSpecialQuestMemory(memory);
+  if (quest.id === 0) return safeMemory;
   const source = inferQuestSource(quest);
   const jobFocus = getQuestJobFocus(quest);
 
@@ -1028,8 +1112,7 @@ export function getYesterdayString() {
 }
 
 export function getDayNumberFromDate(dateString: string) {
-  const date = new Date(dateString);
-  return Math.floor(date.getTime() / (1000 * 60 * 60 * 24));
+  return getDayNumberFromDateString(dateString);
 }
 
 export function getBuildFromStats(stats: Stats): BuildType {
@@ -1083,29 +1166,63 @@ export function scalePenaltyText(
   return `${basePenalty} Standard mode: finish the corrective action before entertainment.`;
 }
 
-function isStrengthTrainingDay(dateString = getTodayString()) {
-  const day = new Date(`${dateString}T12:00:00`).getDay();
-  return day === 1 || day === 3 || day === 5;
+function isWorkoutQuest(quest: Pick<SpecialQuestTemplate, "title" | "description" | "source" | "tags">) {
+  return (
+    quest.source === "workout" ||
+    quest.tags.includes("fitness") ||
+    quest.tags.includes("workout") ||
+    isWorkoutRelatedText(quest.title, quest.description)
+  );
+}
+
+function isWorkoutQuestAllowedToday(
+  quest: Pick<SpecialQuestTemplate, "title" | "description" | "source" | "tags">,
+  profile: UserProfile,
+  dateString: string
+) {
+  if (!isWorkoutQuest(quest)) return true;
+  if (!isWorkoutDay(profile, dateString)) return false;
+
+  const todayName = getWeekdayName(dateString);
+  const text = `${quest.title} ${quest.description}`.toLowerCase();
+  const mentionedDays = weekdayOrder.filter((day) =>
+    text.includes(day.toLowerCase())
+  );
+
+  return mentionedDays.length === 0 || mentionedDays.includes(todayName);
 }
 
 function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString()): Quest {
+  const workoutDay = isWorkoutDay(profile, dateString);
   const prefersCardio =
     profile.workoutPreference === "Running" ||
     profile.workoutPreference === "Walking" ||
     profile.customInterests.toLowerCase().includes("hiking") ||
     profile.hobbies.toLowerCase().includes("hiking");
   const prefersGym = profile.workoutPreference === "Gym";
-  const strengthDay = isStrengthTrainingDay(dateString);
   const preferredDaysNote = profile.preferredWorkoutDays.trim()
     ? ` Preferred workout days: ${profile.preferredWorkoutDays.trim()}.`
     : "";
 
-  if (prefersGym && strengthDay) {
+  if (!workoutDay) {
     return {
       id: 1,
-      title: "Gym Strength Session",
+      title: "Study / Self-Improvement Session",
       description:
-        `Complete the planned gym session from your weekly protocol, or do the smallest safe strength version if time is tight.${preferredDaysNote}`,
+        `No main workout is scheduled today. Complete a study, planning, mobility, or self-improvement session that keeps momentum without overriding your workout calendar.${preferredDaysNote}`,
+      xp: scaleXp(25, profile.difficulty),
+      completed: false,
+      awardedToday: false,
+      statRewards: { intelligence: 1, discipline: 1 },
+    };
+  }
+
+  if (prefersGym) {
+    return {
+      id: 1,
+      title: "Workout / Self-Improvement Session",
+      description:
+        `Complete a gym session or a study/self-improvement session. If training is not safe today, use the smallest recovery-compatible version.${preferredDaysNote}`,
       xp: scaleXp(50, profile.difficulty),
       completed: false,
       awardedToday: false,
@@ -1118,10 +1235,10 @@ function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString
       id: 1,
       title:
         profile.workoutPreference === "Running"
-          ? "Cardio Run Protocol"
-          : "Cardio Walk / Hike Protocol",
+          ? "Run or Self-Improvement Protocol"
+          : "Walk / Hike or Self-Improvement Protocol",
       description:
-        `Complete a sustainable run, walk, or hike that matches your current energy.${preferredDaysNote}`,
+        `Complete a sustainable run, walk, hike, or study/self-improvement session that matches your current energy.${preferredDaysNote}`,
       xp: scaleXp(35, profile.difficulty),
       completed: false,
       awardedToday: false,
@@ -1131,10 +1248,8 @@ function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString
 
   return {
     id: 1,
-    title: prefersGym ? "Recovery Walk or Mobility" : "Training Protocol",
-    description: prefersGym
-      ? `Non-gym day: keep momentum with walking, mobility, or easy conditioning.${preferredDaysNote}`
-      : `Complete the movement plan that fits today: gym, home training, cardio, or mobility.${preferredDaysNote}`,
+    title: "Workout or Self-Improvement Session",
+    description: `Complete the movement plan that fits today: gym, home training, cardio, mobility, or a study/self-improvement session.${preferredDaysNote}`,
     xp: scaleXp(prefersGym ? 25 : 35, profile.difficulty),
     completed: false,
     awardedToday: false,
@@ -1231,18 +1346,22 @@ export function fitnessRank(level: FitnessLevel) {
 export function filterQuestPoolForProfile(
   stats: Stats,
   profile: UserProfile,
-  aiAnalysis?: AiSystemAnalysis | null
+  aiAnalysis?: AiSystemAnalysis | null,
+  dateString = getTodayString()
 ): SpecialQuestTemplate[] {
   const build = getProfileInfluencedBuild(stats, profile);
   const dynamicQuests = createPersonalizedQuestTemplates(profile, aiAnalysis);
   const completePool = [...specialQuestPool, ...dynamicQuests];
+  const scheduleFilteredPool = completePool.filter(
+    (quest) => isWorkoutQuestAllowedToday(quest, profile, dateString)
+  );
 
-  let pool = completePool.filter((quest) =>
+  let pool = scheduleFilteredPool.filter((quest) =>
     quest.preferredBuilds.includes(build)
   );
 
   if (pool.length === 0) {
-    pool = completePool;
+    pool = scheduleFilteredPool;
   }
 
   pool = pool.filter((quest) => {
@@ -1326,7 +1445,7 @@ export function filterQuestPoolForProfile(
     if (fitness.length > 0) pool = fitness;
   }
 
-  return pool.length > 0 ? pool : completePool;
+  return pool.length > 0 ? pool : scheduleFilteredPool;
 }
 
 export function createDailySpecialQuest(
@@ -1336,7 +1455,16 @@ export function createDailySpecialQuest(
   aiAnalysis?: AiSystemAnalysis | null,
   memory?: SpecialQuestMemory | null
 ): SpecialQuest {
-  const poolToUse = filterQuestPoolForProfile(stats, profile, aiAnalysis);
+  if (!shouldAssignSpecialQuest(dateString, profile)) {
+    return createNoSpecialQuest(dateString, profile);
+  }
+
+  const poolToUse = filterQuestPoolForProfile(
+    stats,
+    profile,
+    aiAnalysis,
+    dateString
+  );
   const personalization = getPersonalization(aiAnalysis, profile);
 
   if (poolToUse.length === 0) {
@@ -1462,26 +1590,46 @@ export function getNextAiQuestIndex(
   const safeMemory = normalizeSpecialQuestMemory(memory);
 
   if (profile) {
-    const questPool: SpecialQuestTemplate[] = aiAnalysis.specialQuests.map((quest, index) => ({
-      id: 10000 + index,
-      title: quest.title,
-      description: quest.description,
-      xp: quest.xp,
-      statRewards: quest.statRewards,
-      penalty: quest.penalty,
-      penaltyAction: quest.penaltyAction,
-      preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
-      tags: quest.tags,
-      source: quest.source,
-      jobFocus: quest.jobFocus,
-      durationMinutes: quest.durationMinutes,
-      completionCondition: quest.completionCondition,
-      interestCategories: quest.interestCategories,
-    }));
+    const questPool: SpecialQuestTemplate[] = aiAnalysis.specialQuests
+      .map((quest, index) => ({
+        id: 10000 + index,
+        title: quest.title,
+        description: quest.description,
+        xp: quest.xp,
+        statRewards: quest.statRewards,
+        penalty: quest.penalty,
+        penaltyAction: quest.penaltyAction,
+        preferredBuilds: [
+          "Balanced",
+          "Warrior",
+          "Endurance",
+          "Monk",
+          "Scholar",
+        ] as BuildType[],
+        tags: quest.tags,
+        source: quest.source,
+        jobFocus: quest.jobFocus,
+        durationMinutes: quest.durationMinutes,
+        completionCondition: quest.completionCondition,
+        interestCategories: quest.interestCategories,
+      }))
+      .filter(
+        (quest) => isWorkoutQuestAllowedToday(quest, profile, getTodayString())
+      );
+
+    if (questPool.length === 0) return currentIndex;
+
+    const allowedTitles = new Set(
+      questPool.map((quest) => quest.title.trim().toLowerCase())
+    );
     const preferredSources = getPreferredSources(profile, safeMemory, questPool);
     const primaryPreferredSource = preferredSources[0];
     const ranked = aiAnalysis.specialQuests
       .map((quest, index) => {
+        if (!allowedTitles.has(quest.title.trim().toLowerCase())) {
+          return null;
+        }
+
         const source = quest.source ?? "interest";
         const jobFocus = quest.jobFocus ?? "None";
         let score = index === currentIndex ? -100 : 0;
@@ -1499,6 +1647,7 @@ export function getNextAiQuestIndex(
 
         return { index, score };
       })
+      .filter((item): item is { index: number; score: number } => Boolean(item))
       .sort((a, b) => b.score - a.score || a.index - b.index);
 
     if (ranked[0]) return ranked[0].index;
@@ -1510,6 +1659,17 @@ export function getNextAiQuestIndex(
 
     if (
       candidate &&
+      (!profile ||
+        isWorkoutQuestAllowedToday(
+          {
+            title: candidate.title,
+            description: candidate.description,
+            source: candidate.source,
+            tags: candidate.tags,
+          },
+          profile,
+          getTodayString()
+        )) &&
       !normalizedRecentTitles.includes(candidate.title.trim().toLowerCase())
     ) {
       return candidateIndex;
@@ -1525,7 +1685,8 @@ export function getPreviewSpecialQuests(
   aiAnalysis?: AiSystemAnalysis | null
 ): SpecialQuestTemplate[] {
   if (aiAnalysis?.specialQuests?.length) {
-    return aiAnalysis.specialQuests.slice(0, 6).map((quest, index) => ({
+    return aiAnalysis.specialQuests
+      .map((quest, index) => ({
       id: 1000 + index,
       title: quest.title,
       description: quest.description,
@@ -1533,14 +1694,22 @@ export function getPreviewSpecialQuests(
       statRewards: quest.statRewards,
       penalty: quest.penalty,
       penaltyAction: quest.penaltyAction,
-      preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
+      preferredBuilds: [
+        "Balanced",
+        "Warrior",
+        "Endurance",
+        "Monk",
+        "Scholar",
+      ] as BuildType[],
       tags: quest.tags,
       source: quest.source,
       jobFocus: quest.jobFocus,
       durationMinutes: quest.durationMinutes,
       completionCondition: quest.completionCondition,
       interestCategories: quest.interestCategories,
-    }));
+      }))
+      .filter((quest) => isWorkoutQuestAllowedToday(quest, profile, getTodayString()))
+      .slice(0, 6);
   }
 
   const pool = filterQuestPoolForProfile(stats, profile, aiAnalysis);
@@ -1610,6 +1779,37 @@ export function addStatRewards(
     agility: currentStats.agility + (rewards.agility ?? 0),
     magicResistance:
       currentStats.magicResistance + (rewards.magicResistance ?? 0),
+  };
+}
+
+export function createNoSpecialQuest(
+  dateString: string,
+  profile: UserProfile
+): SpecialQuest {
+  const interval =
+    profile.specialQuestFrequency === "weekly"
+      ? "weekly cadence"
+      : profile.specialQuestFrequency === "custom"
+      ? `${profile.customSpecialQuestIntervalDays}-day cadence`
+      : profile.specialQuestFrequency === "every_day"
+      ? "daily cadence"
+      : "3-day cadence";
+
+  return {
+    id: 0,
+    title: "No Special Quest Scheduled",
+    description: `Special quests are resting today based on your ${interval}. Complete daily quests and support your current plan.`,
+    xp: 0,
+    statRewards: {},
+    penalty: "No penalty. No special quest was assigned today.",
+    preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
+    tags: ["rest", "schedule"],
+    source: "recovery",
+    jobFocus: "None",
+    completed: true,
+    awardedToday: true,
+    assignedDate: dateString,
+    status: "waived",
   };
 }
 
@@ -1755,6 +1955,9 @@ export function createNewUserRecord(name: string): UserRecord {
     stats: defaultStats,
     history: [],
     workoutJournal: [],
+    householdTasks: [],
+    foodJournal: [],
+    dietFeedback: [],
     specialQuest,
     penaltyNotice: null,
     log: [],
@@ -1791,6 +1994,43 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       user.profile?.mainImprovementArea === "Focus"
         ? "Intelligence"
         : user.profile?.mainImprovementArea ?? defaultProfile.mainImprovementArea,
+    age:
+      typeof user.profile?.age === "number" && Number.isFinite(user.profile.age)
+        ? Math.max(1, Math.round(user.profile.age))
+        : defaultProfile.age,
+    weightKg:
+      typeof user.profile?.weightKg === "number" &&
+      Number.isFinite(user.profile.weightKg)
+        ? Math.max(1, Math.round(user.profile.weightKg * 10) / 10)
+        : defaultProfile.weightKg,
+    heightCm:
+      typeof user.profile?.heightCm === "number" &&
+      Number.isFinite(user.profile.heightCm)
+        ? Math.max(1, Math.round(user.profile.heightCm))
+        : defaultProfile.heightCm,
+    availableMinutesWeekday:
+      typeof user.profile?.availableMinutesWeekday === "number" &&
+      Number.isFinite(user.profile.availableMinutesWeekday)
+        ? Math.max(5, Math.round(user.profile.availableMinutesWeekday))
+        : defaultProfile.availableMinutesWeekday,
+    availableMinutesWeekend:
+      typeof user.profile?.availableMinutesWeekend === "number" &&
+      Number.isFinite(user.profile.availableMinutesWeekend)
+        ? Math.max(5, Math.round(user.profile.availableMinutesWeekend))
+        : defaultProfile.availableMinutesWeekend,
+    sleepTargetHours:
+      typeof user.profile?.sleepTargetHours === "number" &&
+      Number.isFinite(user.profile.sleepTargetHours)
+        ? Math.max(1, Math.round(user.profile.sleepTargetHours * 10) / 10)
+        : defaultProfile.sleepTargetHours,
+    customSpecialQuestIntervalDays:
+      typeof user.profile?.customSpecialQuestIntervalDays === "number" &&
+      Number.isFinite(user.profile.customSpecialQuestIntervalDays)
+        ? Math.max(
+            2,
+            Math.min(30, Math.round(user.profile.customSpecialQuestIntervalDays))
+          )
+        : defaultProfile.customSpecialQuestIntervalDays,
   };
 
   const safeEffects: ActiveEffects = {
@@ -1800,6 +2040,26 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     user.specialQuestMemory
   );
   const safeWorkoutJournal = normalizeWorkoutJournalEntries(user.workoutJournal);
+  const safeHouseholdTasks = normalizeHouseholdTasks(user.householdTasks);
+  const safeFoodJournal = normalizeFoodJournalEntries(user.foodJournal);
+  const safeDietFeedback = Array.isArray(user.dietFeedback)
+    ? user.dietFeedback
+        .filter((entry) => entry && typeof entry === "object")
+        .map((entry) => ({
+          date:
+            typeof entry.date === "string" && entry.date.trim()
+              ? entry.date
+              : getTodayString(),
+          summary:
+            typeof entry.summary === "string" ? entry.summary.trim() : "",
+          suggestedMeals: Array.isArray(entry.suggestedMeals)
+            ? entry.suggestedMeals
+                .filter((item) => typeof item === "string" && item.trim())
+                .slice(0, 5)
+            : [],
+        }))
+        .filter((entry) => entry.summary)
+    : [];
 
   if (user.lastResetDate === today) {
     return {
@@ -1807,6 +2067,9 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       profile: safeProfile,
       stats: safeStats,
       workoutJournal: safeWorkoutJournal,
+      householdTasks: safeHouseholdTasks,
+      foodJournal: safeFoodJournal,
+      dietFeedback: safeDietFeedback,
       dailyHp: user.dailyHpDate === today ? user.dailyHp ?? null : null,
       dailyHpDate: user.dailyHpDate === today ? user.dailyHpDate ?? null : null,
       aiAnalysis: user.aiAnalysis ?? null,
@@ -1880,6 +2143,9 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     stats: nextStats,
     history: nextHistory,
     workoutJournal: safeWorkoutJournal,
+    householdTasks: safeHouseholdTasks,
+    foodJournal: safeFoodJournal,
+    dietFeedback: safeDietFeedback,
     specialQuest: nextSpecialQuest,
     penaltyNotice,
     log,

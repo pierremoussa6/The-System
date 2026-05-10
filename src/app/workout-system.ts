@@ -7,36 +7,7 @@ import type {
   WorkoutProgramPhase,
   WorkoutProgramSession,
 } from "./types";
-
-const weekdayOrder = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-] as const;
-
-const weekdayAliases: Record<string, string> = {
-  mon: "Monday",
-  monday: "Monday",
-  tue: "Tuesday",
-  tues: "Tuesday",
-  tuesday: "Tuesday",
-  wed: "Wednesday",
-  wednesday: "Wednesday",
-  thu: "Thursday",
-  thur: "Thursday",
-  thurs: "Thursday",
-  thursday: "Thursday",
-  fri: "Friday",
-  friday: "Friday",
-  sat: "Saturday",
-  saturday: "Saturday",
-  sun: "Sunday",
-  sunday: "Sunday",
-};
+import { parsePreferredWorkoutDays } from "./schedule";
 
 function exercise(
   name: string,
@@ -46,23 +17,6 @@ function exercise(
   notes: string
 ): WorkoutProgramExercise {
   return { name, sets, reps, restSeconds, notes };
-}
-
-export function parsePreferredWorkoutDays(input: string) {
-  const normalized = input
-    .split(/[,/\n;&]+/)
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean)
-    .map((item) => weekdayAliases[item])
-    .filter((item): item is string => Boolean(item));
-
-  const unique = Array.from(new Set(normalized));
-
-  if (unique.length > 0) {
-    return weekdayOrder.filter((day) => unique.includes(day));
-  }
-
-  return ["Monday", "Wednesday", "Friday"];
 }
 
 function pickFrequency(profile: UserProfile, preferredDays: string[]) {

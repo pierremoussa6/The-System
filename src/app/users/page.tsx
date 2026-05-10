@@ -29,6 +29,7 @@ type RemoteProfile = {
   email: string;
   display_name: string;
   role: "creator" | "player";
+  account_status: "pending_approval" | "approved" | "rejected";
   timezone: string;
   reminders_enabled: boolean;
   created_at: string;
@@ -52,6 +53,16 @@ type RemoteUserState = {
 
 type RemoteAccount = RemoteProfile & {
   state: RemoteUserState | null;
+};
+
+type AdminNotification = {
+  id: string;
+  profile_id: string | null;
+  notification_type: string;
+  title: string;
+  details: string;
+  read_at: string | null;
+  created_at: string;
 };
 
 type EditableStateField =
@@ -212,6 +223,7 @@ export default function UsersPage() {
   const [newName, setNewName] = useState("");
 
   const [remoteAccounts, setRemoteAccounts] = useState<RemoteAccount[]>([]);
+  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({});
@@ -227,7 +239,7 @@ export default function UsersPage() {
 
     const { data: profiles, error: profilesError } = await supabase
       .from("profiles")
-      .select("id,email,display_name,role,timezone,reminders_enabled,created_at")
+      .select("id,email,display_name,role,account_status,timezone,reminders_enabled,created_at")
       .order("created_at", { ascending: false });
 
     if (profilesError) {
@@ -262,9 +274,21 @@ export default function UsersPage() {
     setRemoteAccounts(
       profileRows.map((profile) => ({
         ...profile,
+        account_status:
+          profile.role === "creator"
+            ? "approved"
+            : profile.account_status ?? "approved",
         state: stateByUserId.get(profile.id) ?? null,
       }))
     );
+
+    const { data: notifications } = await supabase
+      .from("admin_notifications")
+      .select("id,profile_id,notification_type,title,details,read_at,created_at")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    setAdminNotifications((notifications ?? []) as AdminNotification[]);
     setRemoteLoading(false);
   }, [isCreator, status]);
 
@@ -280,7 +304,12 @@ export default function UsersPage() {
 
   async function updateRemoteProfile(
     id: string,
-    updates: Partial<Pick<RemoteProfile, "display_name" | "role" | "reminders_enabled">>
+    updates: Partial<
+      Pick<
+        RemoteProfile,
+        "display_name" | "role" | "reminders_enabled" | "account_status"
+      >
+    >
   ) {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -525,6 +554,10 @@ export default function UsersPage() {
       );
     }
 
+    const pendingAccounts = remoteAccounts.filter(
+      (account) => account.account_status === "pending_approval"
+    );
+
     return (
       <div className="max-w-5xl space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -543,6 +576,39 @@ export default function UsersPage() {
         {remoteError && (
           <PanelCard className="border-red-500">
             <p className="text-red-300">{remoteError}</p>
+          </PanelCard>
+        )}
+
+        {pendingAccounts.length > 0 && (
+          <PanelCard className="border-yellow-500">
+            <h2 className="text-xl text-yellow-200">
+              Pending Approvals: {pendingAccounts.length}
+            </h2>
+            <p className="text-zinc-300">
+              New accounts are blocked from the full app until approved.
+            </p>
+          </PanelCard>
+        )}
+
+        {adminNotifications.length > 0 && (
+          <PanelCard className="border-cyan-500">
+            <h2 className="text-xl text-cyan-200">Admin Notifications</h2>
+            <div className="space-y-3">
+              {adminNotifications.map((notification) => (
+                <div
+                  key={notification.id}
+                  className="rounded border border-zinc-800 bg-zinc-900 p-3"
+                >
+                  <p className="font-medium text-white">{notification.title}</p>
+                  <p className="text-sm text-zinc-300">
+                    {notification.details}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {new Date(notification.created_at).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
           </PanelCard>
         )}
 
@@ -590,9 +656,22 @@ export default function UsersPage() {
                         </p>
                       </div>
 
-                      <span className="rounded border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs uppercase tracking-wide text-blue-300">
-                        {account.role}
-                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs uppercase tracking-wide text-blue-300">
+                          {account.role}
+                        </span>
+                        <span
+                          className={`rounded border px-3 py-1 text-xs uppercase tracking-wide ${
+                            account.account_status === "approved"
+                              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                              : account.account_status === "rejected"
+                              ? "border-red-500/40 bg-red-500/10 text-red-300"
+                              : "border-yellow-500/40 bg-yellow-500/10 text-yellow-300"
+                          }`}
+                        >
+                          {account.account_status.replace("_", " ")}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
@@ -633,6 +712,31 @@ export default function UsersPage() {
                           : account.role === "creator"
                           ? "Make Player"
                           : "Make Creator"}
+                      </ActionButton>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <ActionButton
+                        onClick={() =>
+                          updateRemoteProfile(account.id, {
+                            account_status: "approved",
+                          })
+                        }
+                        variant="green"
+                        disabled={account.account_status === "approved"}
+                      >
+                        Approve
+                      </ActionButton>
+                      <ActionButton
+                        onClick={() =>
+                          updateRemoteProfile(account.id, {
+                            account_status: "rejected",
+                          })
+                        }
+                        variant="red"
+                        disabled={isPrimaryCreator}
+                      >
+                        Reject
                       </ActionButton>
                     </div>
 
