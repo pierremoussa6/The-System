@@ -7,6 +7,8 @@ import type {
   WorkoutPreference,
 } from "../../../types";
 import { getOpenAIClient } from "../../../lib/openai";
+import { parseWorkoutDaysInput } from "../../../schedule";
+import { sanitizeWeeklyPlanForProfile } from "../../../weekly-plan-system";
 
 const workoutPreferences = [
   "Gym",
@@ -127,8 +129,13 @@ function sanitizeAdjustment(raw: RawAdjustment, profile: UserProfile) {
   const profileUpdates: Partial<UserProfile> = {};
 
   if (raw.profileUpdates.preferredWorkoutDays?.trim()) {
-    profileUpdates.preferredWorkoutDays =
-      raw.profileUpdates.preferredWorkoutDays.trim();
+    const preferredDays = parseWorkoutDaysInput(
+      raw.profileUpdates.preferredWorkoutDays
+    );
+
+    if (preferredDays.length > 0) {
+      profileUpdates.preferredWorkoutDays = preferredDays.join(", ");
+    }
   }
 
   if (raw.profileUpdates.workoutPreference) {
@@ -170,7 +177,10 @@ function sanitizeAdjustment(raw: RawAdjustment, profile: UserProfile) {
       700
     ),
     profileUpdates,
-    weeklyPlan: raw.weeklyPlan,
+    weeklyPlan: sanitizeWeeklyPlanForProfile(raw.weeklyPlan, {
+      ...profile,
+      ...profileUpdates,
+    }),
   };
 }
 

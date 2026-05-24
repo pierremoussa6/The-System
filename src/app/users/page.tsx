@@ -47,6 +47,8 @@ type RemoteUserState = {
   intelligence: number;
   agility: number;
   magicResistance: number;
+  daily_hp: number | null;
+  daily_hp_date: string | null;
   app_state_json: UserRecord | null;
   updated_at: string;
 };
@@ -103,6 +105,11 @@ function getEditableState(account: RemoteAccount): RemoteUserState {
     vitality: 0,
     discipline: 0,
     focus: 0,
+    intelligence: 0,
+    agility: 0,
+    magicResistance: 0,
+    daily_hp: null,
+    daily_hp_date: null,
     app_state_json: null,
     updated_at: new Date().toISOString(),
   };
@@ -156,6 +163,8 @@ function createRemoteAppState(account: RemoteAccount, state: RemoteUserState) {
       ...baseRecord.profile,
       name: account.display_name || baseRecord.profile.name,
     },
+    dailyHp: state.daily_hp,
+    dailyHpDate: state.daily_hp_date,
   });
 }
 
@@ -254,7 +263,7 @@ export default function UsersPage() {
     const { data: states, error: statesError } = profileIds.length
       ? await supabase
           .from("user_state")
-          .select("user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,app_state_json,updated_at")
+          .select("user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,app_state_json,updated_at")
           .in("user_id", profileIds)
       : { data: [], error: null };
 
@@ -362,6 +371,11 @@ export default function UsersPage() {
         vitality: nextAppState.stats.vitality,
         discipline: nextAppState.stats.discipline,
         focus: nextAppState.stats.intelligence,
+        intelligence: nextAppState.stats.intelligence,
+        agility: nextAppState.stats.agility,
+        magic_resistance: nextAppState.stats.magicResistance,
+        daily_hp: nextAppState.dailyHp,
+        daily_hp_date: nextAppState.dailyHpDate,
         app_state_json: nextAppState,
         updated_at: new Date().toISOString(),
       },

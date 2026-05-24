@@ -6,6 +6,7 @@ import type {
   UserProfile,
 } from "../../../types";
 import { getOpenAIClient } from "../../../lib/openai";
+import { sanitizeWeeklyPlanForProfile } from "../../../weekly-plan-system";
 
 const weeklyPlanSchema = {
   type: "object",
@@ -170,7 +171,10 @@ export async function POST(request: Request) {
       },
     });
 
-    const weeklyPlan = JSON.parse(response.output_text) as AiWeeklyPlan;
+    const weeklyPlan = sanitizeWeeklyPlanForProfile(
+      JSON.parse(response.output_text) as AiWeeklyPlan,
+      profile
+    );
 
     return NextResponse.json({ weeklyPlan });
   } catch (error) {

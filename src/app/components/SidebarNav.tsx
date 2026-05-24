@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth-context";
+import { scrollToAppSection } from "../client-scroll";
 
 const navItems = [
   { href: "/", label: "Home" },
@@ -88,15 +89,12 @@ export default function SidebarNav() {
     setMobileOpen(false);
   }
 
-  function scrollToWorkoutSection(id: string) {
-    const element = document.getElementById(id);
-    if (!element) return;
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
   return (
     <>
-      <header className="sticky top-0 z-40 flex items-center justify-between border-b border-zinc-800 bg-black/90 px-4 py-4 backdrop-blur md:hidden">
+      <header
+        data-mobile-app-header="true"
+        className="sticky top-0 z-40 flex items-center justify-between border-b border-zinc-800 bg-black/90 px-4 py-4 backdrop-blur md:hidden"
+      >
         <Link
           href="/"
           className="text-xl font-bold tracking-wide text-blue-400 transition hover:text-blue-300"
@@ -109,14 +107,14 @@ export default function SidebarNav() {
             <>
               <button
                 type="button"
-                onClick={() => scrollToWorkoutSection("workout-journal")}
+                onClick={() => scrollToAppSection("workout-journal")}
                 className="rounded-xl border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200 transition hover:border-emerald-400 hover:text-emerald-100"
               >
                 Journal
               </button>
               <button
                 type="button"
-                onClick={() => scrollToWorkoutSection("workout-exercises-active")}
+                onClick={() => scrollToAppSection("workout-exercises-active")}
                 className="rounded-xl border border-purple-500/50 bg-purple-500/10 px-3 py-2 text-sm font-medium text-purple-200 transition hover:border-purple-400 hover:text-purple-100"
               >
                 Exercises

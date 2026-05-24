@@ -26,6 +26,7 @@ import {
   getRecentUnlockedAchievements,
 } from "../achievements";
 import type { AiWeeklyPlan } from "../types";
+import { formatRewardText } from "../reward-system";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
@@ -49,9 +50,12 @@ export default function DashboardPage() {
     aiAnalysis,
     aiQuestIndex,
     aiWeeklyPlan,
+    funSpecialActivities,
     dailyHp,
     previewSpecialQuests,
     regenerateSpecialQuest,
+    generateFunSpecialActivity,
+    completeFunSpecialActivity,
     updateDailyHp,
     updateAiWeeklyPlan,
   } = useApp();
@@ -573,9 +577,14 @@ export default function DashboardPage() {
       <PanelCard className="border-purple-500">
         <div className="flex items-center justify-between gap-4">
           <SectionTitle title="Special Quest" colorClass="text-purple-400" />
-          <ActionButton onClick={regenerateSpecialQuest} variant="gray">
-            Rotate Quest
-          </ActionButton>
+          <div className="flex flex-wrap gap-3">
+            <ActionButton onClick={regenerateSpecialQuest} variant="gray">
+              Rotate Quest
+            </ActionButton>
+            <ActionButton onClick={generateFunSpecialActivity} variant="green">
+              Generate a fun special activity
+            </ActionButton>
+          </div>
         </div>
 
         <p className="text-lg">{specialQuest.title}</p>
@@ -675,6 +684,43 @@ export default function DashboardPage() {
             {canCompleteSpecialQuest ? "Complete Special Quest" : "Completed"}
           </ActionButton>
         </div>
+
+        {funSpecialActivities.length > 0 && (
+          <div className="space-y-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+            <p className="font-medium text-emerald-200">
+              Fun Special Activities
+            </p>
+            {funSpecialActivities.slice(0, 3).map((activity) => (
+              <div
+                key={activity.id}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-white">{activity.title}</p>
+                    <p className="mt-1 text-sm text-zinc-300">
+                      {activity.description}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      Reward:{" "}
+                      {formatRewardText({
+                        xp: activity.xp,
+                        statRewards: activity.statRewards,
+                      })}
+                    </p>
+                  </div>
+                  <ActionButton
+                    onClick={() => completeFunSpecialActivity(activity.id)}
+                    disabled={activity.completed || activity.awardedToday}
+                    variant={activity.completed ? "gray" : "green"}
+                  >
+                    {activity.completed ? "Completed" : "Complete"}
+                  </ActionButton>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </PanelCard>
 
       <PanelCard className="border-yellow-500">

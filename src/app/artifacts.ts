@@ -42,7 +42,7 @@ export const artifactCatalog: Record<ArtifactKey, Omit<Artifact, "quantity" | "u
     rarity: "rare",
     effectLabel: "Waives today's special quest penalty",
     lore: "Mercy is not weakness when it prevents a spiral.",
-    unlockHint: "Complete a special quest.",
+    unlockHint: "Complete any special quest or fun special activity.",
     usable: true,
   },
   discipline_core: {
@@ -93,6 +93,19 @@ function getTotalStatPoints(user: UserRecord) {
 
 function hasLog(user: UserRecord, type: string) {
   return user.log.some((entry) => entry.type === type);
+}
+
+function countLog(user: UserRecord, type: string) {
+  return user.log.filter((entry) => entry.type === type).length;
+}
+
+function progress(current: number, target: number) {
+  return {
+    current,
+    target,
+    percent:
+      target <= 0 ? 100 : Math.max(0, Math.min(100, Math.round((current / target) * 100))),
+  };
 }
 
 export function getEligibleArtifactKeys(user: UserRecord): ArtifactKey[] {
@@ -200,6 +213,73 @@ export function unlockArtifacts(
 
 export function getArtifactMeta(key: ArtifactKey) {
   return artifactCatalog[key];
+}
+
+export function getArtifactUnlockProgress(user: UserRecord, key: ArtifactKey) {
+  const totalStats = getTotalStatPoints(user);
+  const dailyCompleted = countLog(user, "daily_quest");
+  const specialCompleted = countLog(user, "special_quest");
+
+  switch (key) {
+    case "rest_day_pass":
+      return {
+        condition: "Unlocked at initiation",
+        progressText: "Starter artifact",
+        ...progress(1, 1),
+      };
+    case "focus_shard":
+      return {
+        condition: "Complete any daily quest",
+        progressText: `Daily quests completed: ${dailyCompleted}/1`,
+        ...progress(dailyCompleted, 1),
+      };
+    case "xp_rune":
+      return {
+        condition: "Reach 150 XP",
+        progressText: `Total XP: ${user.totalXp}/150`,
+        ...progress(user.totalXp, 150),
+      };
+    case "null_sigil":
+      return {
+        condition: "Complete any special quest or fun special activity",
+        progressText: `Special quests completed: ${specialCompleted}/1`,
+        ...progress(specialCompleted, 1),
+      };
+    case "discipline_core":
+      return {
+        condition: "Complete a 7-day streak",
+        progressText: `Current streak: ${user.streak}/7`,
+        ...progress(user.streak, 7),
+      };
+    case "victory_seal": {
+      const xpProgress = progress(user.totalXp, 1500);
+      const statProgress = progress(totalStats, 40);
+      const bestPercent = Math.max(xpProgress.percent, statProgress.percent);
+
+      return {
+        condition: "Reach 1,500 XP or 40 total stat points",
+        progressText:
+          `Total XP: ${user.totalXp}/1500 or total stats: ${totalStats}/40`,
+        current: bestPercent,
+        target: 100,
+        percent: bestPercent,
+      };
+    }
+    case "monarch_crown": {
+      const xpProgress = progress(user.totalXp, 5000);
+      const statProgress = progress(totalStats, 100);
+      const percent = Math.min(xpProgress.percent, statProgress.percent);
+
+      return {
+        condition: "Reach 5,000 XP and 100 total stat points",
+        progressText:
+          `Total XP: ${user.totalXp}/5000 and total stats: ${totalStats}/100`,
+        current: percent,
+        target: 100,
+        percent,
+      };
+    }
+  }
 }
 
 export function getArtifactRarityClasses(rarity: Artifact["rarity"]) {

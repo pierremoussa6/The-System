@@ -16,7 +16,7 @@ import type {
   ArtifactKey,
   DietFeedback,
   FoodJournalEntry,
-  HouseholdTaskEntry,
+  HouseholdTaskInput,
   HouseholdTaskKind,
   MultiUserData,
   SpecialQuestTemplate,
@@ -33,13 +33,13 @@ import {
 } from "./artifacts";
 
 import {
-  addStatRewards,
   appendHistoryEntry,
   appendLog,
   appendSpecialQuestMemory,
   cancelSpecialQuestForRecovery,
   createDailyQuests,
   createDailySpecialQuest,
+  createFunSpecialActivity,
   createNewUserRecord,
   createSpecialQuestFromAiSuggestion,
   defaultStats,
@@ -55,9 +55,21 @@ import {
   normalizeUserForToday,
   shouldUseRecoveryMode,
 } from "./quest-engine";
+import {
+  addStatRewards,
+  formatRewardText,
+  hasPositiveStatRewards,
+  type RewardBundle,
+} from "./reward-system";
+import {
+  createHouseholdTask,
+  getHouseholdTaskReward,
+  taskKindLabels,
+} from "./task-system";
 import { useAuth } from "./auth-context";
 import { getSupabaseBrowserClient } from "./lib/supabase/client";
 import { shouldAssignSpecialQuest } from "./schedule";
+import { sanitizeWeeklyPlanForProfile } from "./weekly-plan-system";
 
 const STORAGE_KEY = "the-system-multi-user-data";
 const SAVE_DELAY_MS = 600;
@@ -164,6 +176,11 @@ function getUserStatePayload(user: UserRecord) {
     vitality: user.stats.vitality,
     discipline: user.stats.discipline,
     focus: user.stats.intelligence,
+    intelligence: user.stats.intelligence,
+    agility: user.stats.agility,
+    magic_resistance: user.stats.magicResistance,
+    daily_hp: user.dailyHp,
+    daily_hp_date: user.dailyHpDate,
     ai_analysis_json: user.aiAnalysis,
     ai_weekly_plan_json: user.aiWeeklyPlan,
     ai_quest_index: user.aiQuestIndex,
@@ -185,7 +202,7 @@ function applyArtifactUnlockRewards(user: UserRecord): UserRecord {
     return appendLog(log, {
       type: "artifact",
       title: `Artifact Unlocked: ${meta.title}`,
-      details: `${meta.rarity.toUpperCase()} discovery. ${meta.lore}`,
+      details: `${meta.rarity.toUpperCase()} discovery. Condition: ${meta.unlockHint} ${meta.lore}`,
     });
   }, user.log);
 
@@ -194,6 +211,35 @@ function applyArtifactUnlockRewards(user: UserRecord): UserRecord {
     artifacts: nextArtifacts,
     log: nextLog,
   };
+}
+
+function applyRewardBundle(
+  user: UserRecord,
+  reward: RewardBundle,
+  logEntry: {
+    type: UserRecord["log"][number]["type"];
+    title: string;
+    details?: string;
+  }
+): UserRecord {
+  const nextStats = addStatRewards(user.stats, reward.statRewards);
+  const gainedStats = hasPositiveStatRewards(reward.statRewards);
+  const nextHistory = gainedStats
+    ? appendHistoryEntry(user.history, nextStats)
+    : user.history;
+  const nextLog = appendLog(user.log, {
+    type: logEntry.type,
+    title: logEntry.title,
+    details: logEntry.details ?? `Completed for ${formatRewardText(reward)}.`,
+  });
+
+  return applyArtifactUnlockRewards({
+    ...user,
+    totalXp: user.totalXp + reward.xp,
+    stats: nextStats,
+    history: nextHistory,
+    log: nextLog,
+  });
 }
 
 function useClientReady() {
@@ -385,13 +431,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let nextHistory = current.history;
       let nextLog = current.log;
 
-      const gainedDirectStats =
-        (statRewards.strength ?? 0) > 0 ||
-        (statRewards.vitality ?? 0) > 0 ||
-        (statRewards.discipline ?? 0) > 0 ||
-        (statRewards.intelligence ?? 0) > 0 ||
-        (statRewards.agility ?? 0) > 0 ||
-        (statRewards.magicResistance ?? 0) > 0;
+      const gainedDirectStats = hasPositiveStatRewards(statRewards);
 
       if (gainedDirectStats) {
         nextHistory = appendHistoryEntry(nextHistory, nextStats);
@@ -444,31 +484,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return current;
       }
 
-      const nextStats = addStatRewards(
-        current.stats,
-        current.specialQuest.statRewards
-      );
-
-      const nextHistory = appendHistoryEntry(current.history, nextStats);
-      const nextLog = appendLog(current.log, {
+      const rewardedUser = applyRewardBundle(current, {
+        xp: current.specialQuest.xp,
+        statRewards: current.specialQuest.statRewards,
+      }, {
         type: "special_quest",
         title: current.specialQuest.title,
-        details: `Completed for +${current.specialQuest.xp} XP`,
+        details: `Completed for ${formatRewardText({
+          xp: current.specialQuest.xp,
+          statRewards: current.specialQuest.statRewards,
+        })}.`,
       });
 
-      return applyArtifactUnlockRewards({
-        ...current,
-        totalXp: current.totalXp + current.specialQuest.xp,
-        stats: nextStats,
-        history: nextHistory,
-        log: nextLog,
+      return {
+        ...rewardedUser,
         specialQuest: {
           ...current.specialQuest,
           completed: true,
           awardedToday: true,
           status: "completed",
         },
-      });
+      };
     });
   }
 
@@ -643,24 +679,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateActiveUser((current) => {
       let nextLog = current.log;
+      const safePlan = plan ? sanitizeWeeklyPlanForProfile(plan, current.profile) : null;
 
-      if (plan) {
+      if (safePlan) {
         nextLog = appendLog(nextLog, {
           type: "weekly_plan",
           title: "Weekly Protocol Generated",
-          details: `Objective: ${plan.weekObjective} Pressure level: ${plan.pressureLevel}. Missions issued: ${plan.missions.length}.`,
+          details: `Objective: ${safePlan.weekObjective} Pressure level: ${safePlan.pressureLevel}. Missions issued: ${safePlan.missions.length}.`,
         });
 
         nextLog = appendLog(nextLog, {
           type: "system_notice",
           title: "System Warning Issued",
-          details: plan.systemWarning,
+          details: safePlan.systemWarning,
         });
       }
 
       return {
         ...current,
-        aiWeeklyPlan: plan,
+        aiWeeklyPlan: safePlan,
         log: nextLog,
       };
     });
@@ -721,20 +758,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
-  function addHouseholdTask(kind: HouseholdTaskKind, title: string) {
-    const trimmed = title.trim();
-    if (!activeUser || !trimmed) return;
+  function addHouseholdTask(
+    kind: HouseholdTaskKind,
+    task: string | HouseholdTaskInput
+  ) {
+    if (!activeUser) return;
 
     updateActiveUser((current) => {
-      const nextTask: HouseholdTaskEntry = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        kind,
-        title: trimmed,
-        completed: false,
-        awarded: false,
-        createdAt: getTimestampString(),
-        completedAt: null,
-      };
+      const nextTask = createHouseholdTask(kind, task, getTimestampString());
+
+      if (!nextTask) return current;
 
       return {
         ...current,
@@ -751,7 +784,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     updateActiveUser((current) => {
       const completedTask = (current.householdTasks ?? []).find(
-        (task) => task.id === id && !task.completed
+        (task) => task.id === id && !task.completed && !task.awarded
       );
 
       if (!completedTask) return current;
@@ -767,27 +800,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
       });
 
-      const isChore = completedTask.kind === "chore";
-      const xp = isChore ? 20 : 8;
-      const rewards: Partial<Stats> = isChore
-        ? { discipline: 2 }
-        : { discipline: 1, vitality: 1 };
-      const nextStats = addStatRewards(current.stats, rewards);
-      const nextHistory = appendHistoryEntry(current.history, nextStats);
-      const nextLog = appendLog(current.log, {
+      const reward = getHouseholdTaskReward(completedTask);
+      const rewardedUser = applyRewardBundle(current, reward, {
         type: "household_task",
         title: completedTask.title,
-        details: `${isChore ? "Chore" : "Grocery item"} completed for +${xp} XP.`,
+        details: `${taskKindLabels[completedTask.kind]} completed for ${formatRewardText(reward)}.`,
       });
 
-      return applyArtifactUnlockRewards({
-        ...current,
+      return {
+        ...rewardedUser,
         householdTasks: nextTasks,
-        totalXp: current.totalXp + xp,
-        stats: nextStats,
-        history: nextHistory,
-        log: nextLog,
-      });
+      };
     });
   }
 
@@ -800,6 +823,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (task) => task.id !== id
       ),
     }));
+  }
+
+  function generateFunSpecialActivity() {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const activity = createFunSpecialActivity(
+        getTodayString(),
+        current.stats,
+        current.profile,
+        current.aiAnalysis,
+        current.funSpecialActivities ?? [],
+        shouldUseRecoveryMode(current.dailyHp)
+      );
+
+      return {
+        ...current,
+        funSpecialActivities: [
+          activity,
+          ...(current.funSpecialActivities ?? []),
+        ].slice(0, 12),
+        log: appendLog(current.log, {
+          type: "system_rotation",
+          title: `Fun Activity Generated: ${activity.title}`,
+          details:
+            "A profile-aware optional activity was generated without replacing the scheduled special quest.",
+        }),
+      };
+    });
+  }
+
+  function completeFunSpecialActivity(id: number) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const activity = (current.funSpecialActivities ?? []).find(
+        (item) => item.id === id && !item.completed && !item.awardedToday
+      );
+
+      if (!activity) return current;
+
+      const reward = {
+        xp: activity.xp,
+        statRewards: activity.statRewards,
+      };
+      const nextActivities = (current.funSpecialActivities ?? []).map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              completed: true,
+              awardedToday: true,
+              status: "completed" as const,
+            }
+          : item
+      );
+      const rewardedUser = applyRewardBundle(current, reward, {
+        type: "special_quest",
+        title: activity.title,
+        details: `Fun special activity completed for ${formatRewardText(reward)}.`,
+      });
+
+      return {
+        ...rewardedUser,
+        funSpecialActivities: nextActivities,
+      };
+    });
   }
 
   function addFoodJournalEntry(entry: Omit<FoodJournalEntry, "id">) {
@@ -1104,6 +1193,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         history: activeUser?.history ?? [],
         workoutJournal: activeUser?.workoutJournal ?? [],
         householdTasks: activeUser?.householdTasks ?? [],
+        funSpecialActivities: activeUser?.funSpecialActivities ?? [],
         foodJournal: activeUser?.foodJournal ?? [],
         dietFeedback: activeUser?.dietFeedback ?? [],
         specialQuest: activeUser?.specialQuest ?? null,
@@ -1133,6 +1223,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addHouseholdTask,
         completeHouseholdTask,
         deleteHouseholdTask,
+        generateFunSpecialActivity,
+        completeFunSpecialActivity,
         addFoodJournalEntry,
         deleteFoodJournalEntry,
         saveDietFeedback,

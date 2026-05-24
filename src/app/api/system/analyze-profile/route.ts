@@ -417,7 +417,7 @@ Special quest rules:
 - Intelligence replaces the old Focus attribute and should reward learning, planning, programming, study, strategy, and problem solving.
 - Agility should reward running, walking, hiking, mobility, conditioning, and speed/cardio work.
 - Magic Resistance should reward following the diet protocol, healthy meals, protein, vitamins, minerals, and other nutrition fundamentals.
-- Vitality should reward hydration, recovery, sleep, and general energy; drinking 2L water is the main daily Vitality anchor.
+- Vitality should reward hydration, recovery, sleep, and general energy; drinking 2L water is the main daily Vitality anchor and grants +1 Vitality.
 - workoutDirection and dietDirection must be 1-2 complete sentences. Do not end mid-thought.
 - workoutRecommendation fallback and progressionRule must be complete, practical sentences.
 - dietRecommendation baselineRule and easyFallback must be complete, practical sentences.

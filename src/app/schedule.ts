@@ -1,4 +1,4 @@
-import type { UserProfile } from "./types";
+import type { QuestSource, UserProfile } from "./types";
 
 export type Weekday =
   | "Monday"
@@ -39,7 +39,7 @@ const weekdayAliases: Record<string, Weekday> = {
   sunday: "Sunday",
 };
 
-export function parsePreferredWorkoutDays(input = ""): Weekday[] {
+export function parseWorkoutDaysInput(input = ""): Weekday[] {
   const normalized = input
     .split(/[,/\n;&]+/)
     .map((item) => item.trim().toLowerCase())
@@ -49,11 +49,29 @@ export function parsePreferredWorkoutDays(input = ""): Weekday[] {
 
   const unique = Array.from(new Set(normalized));
 
-  if (unique.length > 0) {
-    return weekdayOrder.filter((day) => unique.includes(day));
-  }
+  return weekdayOrder.filter((day) => unique.includes(day));
+}
 
+export function parsePreferredWorkoutDays(input = ""): Weekday[] {
+  const explicitDays = parseWorkoutDaysInput(input);
+  if (explicitDays.length > 0) return explicitDays;
   return ["Monday", "Wednesday", "Friday"];
+}
+
+export function formatPreferredWorkoutDays(input = "") {
+  return parseWorkoutDaysInput(input).join(", ");
+}
+
+export function getWeekdayFromText(input = ""): Weekday | null {
+  const text = input.toLowerCase();
+
+  return (
+    weekdayOrder.find((day) => text.includes(day.toLowerCase())) ??
+    Object.entries(weekdayAliases).find(([alias]) =>
+      new RegExp(`\\b${alias}\\b`).test(text)
+    )?.[1] ??
+    null
+  );
 }
 
 export function getWeekdayName(dateString: string): Weekday {
@@ -73,6 +91,16 @@ export function isWorkoutDay(profile: UserProfile, dateString: string) {
   if (!profile.wantsWorkoutPlan) return false;
   return parsePreferredWorkoutDays(profile.preferredWorkoutDays).includes(
     getWeekdayName(dateString)
+  );
+}
+
+export function isWorkoutAllowedOnWeekday(
+  profile: UserProfile,
+  weekday: Weekday
+) {
+  if (!profile.wantsWorkoutPlan) return false;
+  return parsePreferredWorkoutDays(profile.preferredWorkoutDays).includes(
+    weekday
   );
 }
 
@@ -122,4 +150,42 @@ export function isWorkoutRelatedText(title: string, description = "") {
     text.includes("run") ||
     text.includes("walk")
   );
+}
+
+export function isWorkoutLikeActivity(activity: {
+  title: string;
+  description?: string;
+  source?: QuestSource;
+  tags?: string[];
+}) {
+  const tags = activity.tags ?? [];
+
+  return (
+    activity.source === "workout" ||
+    tags.includes("fitness") ||
+    tags.includes("workout") ||
+    isWorkoutRelatedText(activity.title, activity.description)
+  );
+}
+
+export function isQuestAllowedForProfileDate(
+  quest: {
+    title: string;
+    description?: string;
+    source?: QuestSource;
+    tags?: string[];
+  },
+  profile: UserProfile,
+  dateString: string
+) {
+  if (!isWorkoutLikeActivity(quest)) return true;
+  if (!isWorkoutDay(profile, dateString)) return false;
+
+  const todayName = getWeekdayName(dateString);
+  const text = `${quest.title} ${quest.description ?? ""}`.toLowerCase();
+  const mentionedDays = weekdayOrder.filter((day) =>
+    text.includes(day.toLowerCase())
+  );
+
+  return mentionedDays.length === 0 || mentionedDays.includes(todayName);
 }

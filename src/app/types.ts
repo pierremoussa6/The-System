@@ -455,6 +455,7 @@ export type UserRecord = {
   history: HistoryEntry[];
   workoutJournal: WorkoutJournalEntry[];
   householdTasks: HouseholdTaskEntry[];
+  funSpecialActivities: SpecialQuest[];
   foodJournal: FoodJournalEntry[];
   dietFeedback: DietFeedback[];
   specialQuest: SpecialQuest;
@@ -496,6 +497,7 @@ export type AppState = {
   history: HistoryEntry[];
   workoutJournal: WorkoutJournalEntry[];
   householdTasks: HouseholdTaskEntry[];
+  funSpecialActivities: SpecialQuest[];
   foodJournal: FoodJournalEntry[];
   dietFeedback: DietFeedback[];
   specialQuest: SpecialQuest | null;
@@ -522,9 +524,14 @@ export type AppState = {
   addWorkoutJournalEntry: (
     entry: Omit<WorkoutJournalEntry, "id">
   ) => void;
-  addHouseholdTask: (kind: HouseholdTaskKind, title: string) => void;
+  addHouseholdTask: (
+    kind: HouseholdTaskKind,
+    task: string | HouseholdTaskInput
+  ) => void;
   completeHouseholdTask: (id: string) => void;
   deleteHouseholdTask: (id: string) => void;
+  generateFunSpecialActivity: () => void;
+  completeFunSpecialActivity: (id: number) => void;
   addFoodJournalEntry: (entry: Omit<FoodJournalEntry, "id">) => void;
   deleteFoodJournalEntry: (id: string) => void;
   saveDietFeedback: (feedback: DietFeedback) => void;
@@ -538,12 +545,24 @@ export type AppState = {
   regenerateSpecialQuest: () => void;
 };
 
-export type HouseholdTaskKind = "chore" | "grocery";
+export type HouseholdTaskKind = "chore" | "grocery" | "study" | "agility";
+
+export type AgilityActivityType = "Walk" | "Run";
+
+export type HouseholdTaskInput = {
+  title: string;
+  durationMinutes?: number;
+  activityType?: AgilityActivityType;
+  distanceKm?: number;
+};
 
 export type HouseholdTaskEntry = {
   id: string;
   kind: HouseholdTaskKind;
   title: string;
+  durationMinutes?: number;
+  activityType?: AgilityActivityType;
+  distanceKm?: number;
   completed: boolean;
   awarded: boolean;
   createdAt: string;

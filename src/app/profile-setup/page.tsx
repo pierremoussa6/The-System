@@ -1,13 +1,14 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useApp } from "../store";
 import type { AiSystemAnalysis, UserProfile } from "../types";
 import { defaultProfile } from "../quest-engine";
 import { getIncompleteProfileReasons, isProfileComplete } from "../profile";
 import PanelCard from "../components/PanelCard";
 import ActionButton from "../components/ActionButton";
+import { parseWorkoutDaysInput } from "../schedule";
 
 type ProfileFormProps = {
   initialProfile: UserProfile;
@@ -23,21 +24,122 @@ function FieldLabel({
   children: ReactNode;
   help?: string;
 }) {
+  const tooltipId = useId();
+  const wrapperRef = useRef<HTMLSpanElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [position, setPosition] = useState<CSSProperties | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function updatePosition() {
+      const button = buttonRef.current;
+      if (!button) return;
+
+      const rect = button.getBoundingClientRect();
+      const width = Math.min(288, window.innerWidth - 32);
+      const left = Math.max(
+        16,
+        Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 16)
+      );
+      const top = Math.min(rect.bottom + 8, window.innerHeight - 32);
+
+      setPosition({
+        left,
+        top,
+        width,
+      });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+
+      if (
+        wrapperRef.current?.contains(target) ||
+        tooltipRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setOpen(false);
+      setPinned(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      setPinned(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   return (
     <span className="mb-2 flex items-center gap-2 text-zinc-400">
       <span>{children}</span>
       {help && (
-        <span className="group relative inline-flex">
+        <span
+          ref={wrapperRef}
+          className="relative inline-flex"
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => {
+            if (!pinned) setOpen(false);
+          }}
+        >
           <button
+            ref={buttonRef}
             type="button"
             aria-label={`Help: ${children}`}
+            aria-expanded={open}
+            aria-describedby={open ? tooltipId : undefined}
+            onClick={() => {
+              setPinned((current) => {
+                const nextPinned = !current;
+                setOpen(nextPinned);
+                return nextPinned;
+              });
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => {
+              if (!pinned) setOpen(false);
+            }}
             className="flex h-5 w-5 items-center justify-center rounded-full border border-zinc-600 bg-zinc-800 text-xs text-zinc-300 hover:border-blue-400 hover:text-blue-200"
           >
             ?
           </button>
-          <span className="pointer-events-none absolute left-1/2 top-7 z-20 hidden w-64 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-xs leading-5 text-zinc-200 shadow-xl group-hover:block group-focus-within:block">
-            {help}
-          </span>
+          {open && (
+            <span
+              id={tooltipId}
+              ref={tooltipRef}
+              role="tooltip"
+              style={position ?? undefined}
+              className="fixed z-50 max-h-[min(14rem,calc(100vh-2rem))] overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-xs leading-5 text-zinc-200 shadow-xl"
+            >
+              {help}
+            </span>
+          )}
         </span>
       )}
     </span>
@@ -85,9 +187,15 @@ function NumericProfileInput({
 }
 
 function sanitizeProfileForSave(profile: UserProfile): UserProfile {
+  const preferredWorkoutDays = parseWorkoutDaysInput(
+    profile.preferredWorkoutDays
+  ).join(", ");
+
   return {
     ...profile,
     goal: profile.motivationWhy.trim() || profile.goal.trim(),
+    preferredWorkoutDays:
+      preferredWorkoutDays || profile.preferredWorkoutDays.trim(),
     age: Math.round(clampNumber(profile.age, defaultProfile.age, 13, 100)),
     weightKg:
       Math.round(clampNumber(profile.weightKg, defaultProfile.weightKg, 30, 300) * 10) /

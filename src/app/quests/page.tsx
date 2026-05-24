@@ -3,6 +3,12 @@
 import { useState } from "react";
 import { useApp } from "../store";
 import { calculateLevel } from "../logic";
+import type { AgilityActivityType, HouseholdTaskEntry } from "../types";
+import { formatRewardText } from "../reward-system";
+import {
+  getHouseholdTaskDetails,
+  getHouseholdTaskRewardText,
+} from "../task-system";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
@@ -28,9 +34,18 @@ export default function QuestsPage() {
     addHouseholdTask,
     completeHouseholdTask,
     deleteHouseholdTask,
+    funSpecialActivities,
+    generateFunSpecialActivity,
+    completeFunSpecialActivity,
   } = useApp();
   const [newChore, setNewChore] = useState("");
   const [newGrocery, setNewGrocery] = useState("");
+  const [newStudyTitle, setNewStudyTitle] = useState("");
+  const [newStudyDuration, setNewStudyDuration] = useState("15");
+  const [newAgilityType, setNewAgilityType] =
+    useState<AgilityActivityType>("Walk");
+  const [newAgilityDistance, setNewAgilityDistance] = useState("");
+  const [newAgilityDuration, setNewAgilityDuration] = useState("20");
 
   if (!isLoaded || !specialQuest || !profile) {
     return (
@@ -53,20 +68,10 @@ export default function QuestsPage() {
   function getQuestRewardText(questId: number) {
     const quest = quests.find((q) => q.id === questId);
     if (!quest) return "";
-
-    const statText = Object.entries(quest.statRewards ?? {})
-      .filter(([, value]) => typeof value === "number" && value > 0)
-      .map(([key, value]) => {
-        const label =
-          key === "magicResistance"
-            ? "Magic Resistance"
-            : key.charAt(0).toUpperCase() + key.slice(1);
-
-        return `+${value} ${label}`;
-      })
-      .join(" / ");
-
-    return statText ? `+${quest.xp} XP / ${statText}` : `+${quest.xp} XP`;
+    return formatRewardText({
+      xp: quest.xp,
+      statRewards: quest.statRewards ?? {},
+    });
   }
 
   function handleAddChore() {
@@ -81,8 +86,110 @@ export default function QuestsPage() {
     setNewGrocery("");
   }
 
+  function handleAddStudy() {
+    if (!newStudyTitle.trim()) return;
+
+    addHouseholdTask("study", {
+      title: newStudyTitle,
+      durationMinutes: Number(newStudyDuration),
+    });
+    setNewStudyTitle("");
+  }
+
+  function handleAddAgility() {
+    const distanceKm = newAgilityDistance.trim()
+      ? Number(newAgilityDistance)
+      : undefined;
+    const durationMinutes = newAgilityDuration.trim()
+      ? Number(newAgilityDuration)
+      : undefined;
+    const detailParts = [
+      newAgilityType,
+      distanceKm ? `${distanceKm} km` : "",
+      durationMinutes ? `${durationMinutes} min` : "",
+    ].filter(Boolean);
+
+    addHouseholdTask("agility", {
+      title: detailParts.join(" / "),
+      activityType: newAgilityType,
+      distanceKm,
+      durationMinutes,
+    });
+    setNewAgilityDistance("");
+    setNewAgilityDuration(newAgilityType === "Run" ? "" : "20");
+  }
+
   const chores = householdTasks.filter((task) => task.kind === "chore");
   const groceries = householdTasks.filter((task) => task.kind === "grocery");
+  const studyTasks = householdTasks.filter((task) => task.kind === "study");
+  const agilityTasks = householdTasks.filter((task) => task.kind === "agility");
+  const studyDuration = Number(newStudyDuration);
+  const agilityDistance = Number(newAgilityDistance);
+  const agilityDuration = Number(newAgilityDuration);
+  const canAddStudy =
+    Boolean(newStudyTitle.trim()) &&
+    Number.isFinite(studyDuration) &&
+    studyDuration > 0;
+  const canAddAgility =
+    newAgilityType === "Run"
+      ? Number.isFinite(agilityDistance) && agilityDistance >= 1
+      : (Number.isFinite(agilityDistance) && agilityDistance > 0) ||
+        (Number.isFinite(agilityDuration) && agilityDuration > 0);
+
+  function renderTaskList(
+    tasks: HouseholdTaskEntry[],
+    emptyLabel: string,
+    completeLabel: string,
+    variant: "green" | "blue" | "purple"
+  ) {
+    return (
+      <div className="space-y-3">
+        {tasks.length > 0 ? (
+          tasks.map((task) => (
+            <div
+              key={task.id}
+              className={`rounded-lg border p-4 ${
+                task.completed
+                  ? "border-emerald-500 bg-emerald-950/30"
+                  : "border-zinc-700 bg-zinc-800"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium text-white">{task.title}</p>
+                  <p className="text-sm text-zinc-400">
+                    {getHouseholdTaskDetails(task)}
+                  </p>
+                  <p className="text-sm text-zinc-400">
+                    Reward: {getHouseholdTaskRewardText(task)}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <ActionButton
+                    onClick={() => completeHouseholdTask(task.id)}
+                    variant={task.completed ? "gray" : variant}
+                    disabled={task.completed}
+                  >
+                    {task.completed ? "Done" : completeLabel}
+                  </ActionButton>
+                  <ActionButton
+                    onClick={() => deleteHouseholdTask(task.id)}
+                    variant="red"
+                  >
+                    Delete
+                  </ActionButton>
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+            <p className="text-zinc-300">{emptyLabel}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
       <h1 className="text-3xl text-blue-400">Quests</h1>
@@ -247,7 +354,53 @@ export default function QuestsPage() {
               ? "Completed"
               : "Complete Special Quest"}
           </ActionButton>
+
+          <ActionButton onClick={generateFunSpecialActivity} variant="green">
+            Generate a fun special activity
+          </ActionButton>
         </div>
+
+        {funSpecialActivities.length > 0 && (
+          <div className="space-y-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+            <p className="font-medium text-emerald-200">
+              Fun Special Activities
+            </p>
+            {funSpecialActivities.map((activity) => (
+              <div
+                key={activity.id}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-white">{activity.title}</p>
+                    <p className="mt-1 text-sm text-zinc-300">
+                      {activity.description}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      Reward:{" "}
+                      {formatRewardText({
+                        xp: activity.xp,
+                        statRewards: activity.statRewards,
+                      })}
+                    </p>
+                    {activity.completionCondition && (
+                      <p className="mt-1 text-sm text-zinc-500">
+                        Completion: {activity.completionCondition}
+                      </p>
+                    )}
+                  </div>
+                  <ActionButton
+                    onClick={() => completeFunSpecialActivity(activity.id)}
+                    disabled={activity.completed || activity.awardedToday}
+                    variant={activity.completed ? "gray" : "green"}
+                  >
+                    {activity.completed ? "Completed" : "Complete"}
+                  </ActionButton>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </PanelCard>
 
       <PanelCard>
@@ -278,12 +431,9 @@ export default function QuestsPage() {
       </PanelCard>
 
       <PanelCard className="border-emerald-500">
-        <SectionTitle
-          title="Chores and Groceries Journal"
-          colorClass="text-emerald-400"
-        />
+        <SectionTitle title="Task Journal" colorClass="text-emerald-400" />
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="space-y-3">
             <div className="flex gap-3">
               <input
@@ -296,49 +446,7 @@ export default function QuestsPage() {
                 Add
               </ActionButton>
             </div>
-
-            <div className="space-y-3">
-              {chores.length > 0 ? (
-                chores.map((task) => (
-                  <div
-                    key={task.id}
-                    className={`rounded-lg border p-4 ${
-                      task.completed
-                        ? "border-emerald-500 bg-emerald-950/30"
-                        : "border-zinc-700 bg-zinc-800"
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-white">{task.title}</p>
-                        <p className="text-sm text-zinc-400">
-                          Reward: +20 XP / +2 Discipline
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <ActionButton
-                          onClick={() => completeHouseholdTask(task.id)}
-                          variant={task.completed ? "gray" : "green"}
-                          disabled={task.completed}
-                        >
-                          {task.completed ? "Done" : "Complete"}
-                        </ActionButton>
-                        <ActionButton
-                          onClick={() => deleteHouseholdTask(task.id)}
-                          variant="red"
-                        >
-                          Delete
-                        </ActionButton>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
-                  <p className="text-zinc-300">No chores added yet.</p>
-                </div>
-              )}
-            </div>
+            {renderTaskList(chores, "No chores added yet.", "Complete", "green")}
           </div>
 
           <div className="space-y-3">
@@ -353,49 +461,98 @@ export default function QuestsPage() {
                 Add
               </ActionButton>
             </div>
+            {renderTaskList(
+              groceries,
+              "No grocery items added yet.",
+              "Complete",
+              "blue"
+            )}
+          </div>
 
+          <div className="space-y-3">
             <div className="space-y-3">
-              {groceries.length > 0 ? (
-                groceries.map((task) => (
-                  <div
-                    key={task.id}
-                    className={`rounded-lg border p-4 ${
-                      task.completed
-                        ? "border-blue-500 bg-blue-950/30"
-                        : "border-zinc-700 bg-zinc-800"
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-white">{task.title}</p>
-                        <p className="text-sm text-zinc-400">
-                          Reward: +8 XP / +1 Discipline / +1 Vitality
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <ActionButton
-                          onClick={() => completeHouseholdTask(task.id)}
-                          variant={task.completed ? "gray" : "blue"}
-                          disabled={task.completed}
-                        >
-                          {task.completed ? "Bought" : "Complete"}
-                        </ActionButton>
-                        <ActionButton
-                          onClick={() => deleteHouseholdTask(task.id)}
-                          variant="red"
-                        >
-                          Delete
-                        </ActionButton>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
-                  <p className="text-zinc-300">No grocery items added yet.</p>
-                </div>
-              )}
+              <input
+                value={newStudyTitle}
+                onChange={(event) => setNewStudyTitle(event.target.value)}
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                placeholder="Study session"
+              />
+              <div className="flex gap-3">
+                <input
+                  type="number"
+                  min="1"
+                  value={newStudyDuration}
+                  onChange={(event) => setNewStudyDuration(event.target.value)}
+                  className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                  placeholder="Minutes"
+                />
+                <ActionButton
+                  onClick={handleAddStudy}
+                  variant="purple"
+                  disabled={!canAddStudy}
+                >
+                  Add
+                </ActionButton>
+              </div>
             </div>
+            {renderTaskList(
+              studyTasks,
+              "No study sessions added yet.",
+              "Complete",
+              "purple"
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="space-y-3">
+              <select
+                value={newAgilityType}
+                onChange={(event) =>
+                  setNewAgilityType(event.target.value as AgilityActivityType)
+                }
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+              >
+                <option value="Walk">Walk</option>
+                <option value="Run">Run</option>
+              </select>
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={newAgilityDistance}
+                  onChange={(event) =>
+                    setNewAgilityDistance(event.target.value)
+                  }
+                  className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                  placeholder="Km"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  value={newAgilityDuration}
+                  onChange={(event) =>
+                    setNewAgilityDuration(event.target.value)
+                  }
+                  className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                  placeholder="Minutes"
+                />
+              </div>
+              <ActionButton
+                onClick={handleAddAgility}
+                variant="green"
+                disabled={!canAddAgility}
+                className="w-full"
+              >
+                Add
+              </ActionButton>
+            </div>
+            {renderTaskList(
+              agilityTasks,
+              "No agility activities added yet.",
+              "Complete",
+              "green"
+            )}
           </div>
         </div>
       </PanelCard>

@@ -1,7 +1,10 @@
 "use client";
 
 import { useApp } from "../store";
-import { getArtifactRarityClasses } from "../artifacts";
+import {
+  getArtifactRarityClasses,
+  getArtifactUnlockProgress,
+} from "../artifacts";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import ActionButton from "../components/ActionButton";
@@ -10,9 +13,11 @@ export default function ArtifactsPage() {
   const {
     isLoaded,
     artifacts,
+    activeUser,
     activeEffects,
     specialQuest,
     lastCompletionDate,
+    log,
     activateArtifact,
   } = useApp();
 
@@ -28,6 +33,10 @@ export default function ArtifactsPage() {
   }
 
   const today = new Date().toISOString().split("T")[0];
+  const latestArtifactUnlock = log.find(
+    (entry) =>
+      entry.type === "artifact" && entry.title.startsWith("Artifact Unlocked:")
+  );
 
   function isDisabled(key: string, quantity: number, usable: boolean, unlocked: boolean) {
     if (!unlocked || !usable || quantity <= 0) return true;
@@ -83,6 +92,33 @@ export default function ArtifactsPage() {
         </p>
       </PanelCard>
 
+      <PanelCard className="border-blue-500">
+        <SectionTitle title="How to Unlock Artifacts" colorClass="text-blue-400" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+            <p className="font-medium text-white">Progress sources</p>
+            <p className="mt-1 text-sm text-zinc-300">
+              Artifacts unlock from completed daily quests, special quests, streaks, XP, and total stat growth.
+            </p>
+          </div>
+          <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+            <p className="font-medium text-white">Unlock feedback</p>
+            <p className="mt-1 text-sm text-zinc-300">
+              When a relic unlocks, The System records it here and in the System Log.
+            </p>
+          </div>
+        </div>
+        {latestArtifactUnlock && (
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4">
+            <p className="text-sm text-emerald-300">Latest unlock</p>
+            <p className="font-medium text-white">{latestArtifactUnlock.title}</p>
+            <p className="mt-1 text-sm text-zinc-300">
+              {latestArtifactUnlock.details}
+            </p>
+          </div>
+        )}
+      </PanelCard>
+
       {artifacts.length === 0 ? (
         <PanelCard>
           <p>No artifacts stored.</p>
@@ -91,6 +127,9 @@ export default function ArtifactsPage() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {artifacts.map((artifact) => {
             const styles = getArtifactRarityClasses(artifact.rarity);
+            const unlockProgress = activeUser
+              ? getArtifactUnlockProgress(activeUser, artifact.key)
+              : null;
             const disabled = isDisabled(
               artifact.key,
               artifact.quantity,
@@ -111,7 +150,7 @@ export default function ArtifactsPage() {
                     <p className="mt-1 text-zinc-300">
                       {artifact.unlocked
                         ? artifact.description
-                        : artifact.unlockHint}
+                        : unlockProgress?.condition ?? artifact.unlockHint}
                     </p>
                   </div>
 
@@ -141,6 +180,29 @@ export default function ArtifactsPage() {
                     <p className="mt-2 text-sm text-zinc-400">{artifact.lore}</p>
                   )}
                 </div>
+
+                {unlockProgress && (
+                  <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <p className="text-sm text-zinc-400">Unlock condition</p>
+                      <p className="text-sm text-zinc-300">
+                        {unlockProgress.percent}%
+                      </p>
+                    </div>
+                    <p className="text-sm text-zinc-200">
+                      {unlockProgress.condition}
+                    </p>
+                    <div className="mt-3 h-2 overflow-hidden rounded bg-zinc-700">
+                      <div
+                        className="h-2 rounded bg-blue-500"
+                        style={{ width: `${unlockProgress.percent}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-400">
+                      {unlockProgress.progressText}
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-sm text-zinc-400">

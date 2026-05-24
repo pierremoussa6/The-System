@@ -5,27 +5,12 @@ import { useApp } from "../store";
 import { getPersonalization } from "../quest-engine";
 import { buildWorkoutProgram } from "../workout-system";
 import type { AiWeeklyPlan, UserProfile } from "../types";
+import { scrollToAppSection } from "../client-scroll";
+import { isWorkoutLikeActivity } from "../schedule";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
 import ActionButton from "../components/ActionButton";
-
-function isWorkoutMission(title: string, description: string) {
-  const text = `${title} ${description}`.toLowerCase();
-
-  return (
-    text.includes("gym") ||
-    text.includes("workout") ||
-    text.includes("train") ||
-    text.includes("lift") ||
-    text.includes("conditioning") ||
-    text.includes("cardio") ||
-    text.includes("walk") ||
-    text.includes("run") ||
-    text.includes("mobility") ||
-    text.includes("recovery")
-  );
-}
 
 export default function WorkoutPage() {
   const {
@@ -69,7 +54,7 @@ export default function WorkoutPage() {
   const workoutMissions = useMemo(() => {
     if (!aiWeeklyPlan?.missions) return [];
     return aiWeeklyPlan.missions.filter((mission) =>
-      isWorkoutMission(mission.title, mission.description)
+      isWorkoutLikeActivity(mission)
     );
   }, [aiWeeklyPlan]);
 
@@ -115,12 +100,6 @@ export default function WorkoutPage() {
     return [hours, minutes, secs]
       .map((value) => String(value).padStart(2, "0"))
       .join(":");
-  }
-
-  function scrollToSection(id: string) {
-    document
-      .getElementById(id)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function handleAdjustWorkoutPlan() {
@@ -195,13 +174,13 @@ export default function WorkoutPage() {
         <h1 className="text-3xl text-blue-400">Workout</h1>
         <div className="hidden flex-wrap gap-3 md:flex">
           <ActionButton
-            onClick={() => scrollToSection("workout-journal")}
+            onClick={() => scrollToAppSection("workout-journal")}
             variant="green"
           >
             Journal
           </ActionButton>
           <ActionButton
-            onClick={() => scrollToSection("workout-exercises-active")}
+            onClick={() => scrollToAppSection("workout-exercises-active")}
             variant="purple"
           >
             Exercises
@@ -248,7 +227,7 @@ export default function WorkoutPage() {
         </div>
       </PanelCard>
 
-      <PanelCard id="workout-journal" className="border-emerald-500">
+      <PanelCard id="workout-timer" className="border-emerald-500">
         <SectionTitle title="Workout Timer" colorClass="text-emerald-400" />
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -388,7 +367,7 @@ export default function WorkoutPage() {
         )}
       </PanelCard>
 
-      <PanelCard className="border-emerald-500">
+      <PanelCard id="workout-journal" className="border-emerald-500">
         <SectionTitle title="Workout Journal" colorClass="text-emerald-400" />
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

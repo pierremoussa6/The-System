@@ -16,14 +16,17 @@ export default function SystemLogPage() {
           entry.type === "daily_quest" ||
           entry.type === "special_quest" ||
           entry.type === "workout_log" ||
-          entry.type === "special_status"
+          entry.type === "special_status" ||
+          entry.type === "household_task" ||
+          entry.type === "nutrition"
       ),
       system: log.filter(
         (entry) =>
           entry.type === "system_analysis" ||
           entry.type === "weekly_plan" ||
           entry.type === "system_rotation" ||
-          entry.type === "system_notice"
+          entry.type === "system_notice" ||
+          entry.type === "artifact"
       ),
       penalty: log.filter((entry) => entry.type === "penalty"),
     };
@@ -48,6 +51,12 @@ export default function SystemLogPage() {
         return "border-purple-500";
       case "workout_log":
         return "border-emerald-500";
+      case "household_task":
+        return "border-emerald-500";
+      case "nutrition":
+        return "border-lime-500";
+      case "artifact":
+        return "border-yellow-500";
       case "special_status":
         return "border-fuchsia-500";
       case "penalty":
@@ -73,6 +82,12 @@ export default function SystemLogPage() {
         return "Special Quest";
       case "workout_log":
         return "Workout Log";
+      case "household_task":
+        return "Task Journal";
+      case "nutrition":
+        return "Nutrition";
+      case "artifact":
+        return "Artifact";
       case "special_status":
         return "Quest State";
       case "penalty":

@@ -7,7 +7,6 @@ import type {
   FitnessLevel,
   FoodJournalEntry,
   HistoryEntry,
-  HouseholdTaskEntry,
   InterestCategory,
   OnboardingAnalysisResult,
   LogEntry,
@@ -29,12 +28,12 @@ import type {
 import { createStarterArtifacts, normalizeArtifacts } from "./artifacts";
 import {
   getDayNumberFromDateString,
-  getWeekdayName,
   isWorkoutDay,
-  isWorkoutRelatedText,
+  isQuestAllowedForProfileDate,
   shouldAssignSpecialQuest,
-  weekdayOrder,
 } from "./schedule";
+import { normalizeHouseholdTasks } from "./task-system";
+export { addStatRewards } from "./reward-system";
 
 export const defaultStats: Stats = {
   strength: 0,
@@ -103,34 +102,6 @@ function normalizeWorkoutJournalEntries(
       notes: typeof entry.notes === "string" ? entry.notes.trim() : "",
     }))
     .filter((entry) => entry.exerciseName);
-}
-
-function normalizeHouseholdTasks(
-  entries: HouseholdTaskEntry[] | undefined
-): HouseholdTaskEntry[] {
-  if (!Array.isArray(entries)) return [];
-
-  return entries
-    .filter((entry) => entry && typeof entry === "object")
-    .map((entry) => ({
-      id:
-        typeof entry.id === "string" && entry.id.trim()
-          ? entry.id
-          : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      kind: entry.kind === "grocery" ? ("grocery" as const) : ("chore" as const),
-      title: typeof entry.title === "string" ? entry.title.trim() : "",
-      completed: Boolean(entry.completed),
-      awarded: Boolean(entry.awarded),
-      createdAt:
-        typeof entry.createdAt === "string" && entry.createdAt.trim()
-          ? entry.createdAt
-          : getTimestampString(),
-      completedAt:
-        typeof entry.completedAt === "string" && entry.completedAt.trim()
-          ? entry.completedAt
-          : null,
-    }))
-    .filter((entry) => entry.title);
 }
 
 function toNutritionNumber(value: unknown) {
@@ -959,6 +930,262 @@ function createPersonalizedQuestTemplates(
   ];
 }
 
+function createFunActivityTemplate(
+  id: number,
+  input: {
+    title: string;
+    description: string;
+    xp: number;
+    statRewards: Partial<Stats>;
+    source: QuestSource;
+    durationMinutes: number;
+    completionCondition: string;
+    tags: string[];
+    categories: InterestCategory[];
+  }
+): SpecialQuestTemplate {
+  return {
+    id,
+    title: input.title,
+    description: input.description,
+    xp: input.xp,
+    statRewards: input.statRewards,
+    penalty: "No penalty. Fun special activities are optional boredom cures.",
+    preferredBuilds: ["Balanced", "Warrior", "Endurance", "Monk", "Scholar"],
+    tags: ["fun", ...input.tags],
+    source: input.source,
+    jobFocus: "None",
+    durationMinutes: input.durationMinutes,
+    completionCondition: input.completionCondition,
+    interestCategories: input.categories,
+  };
+}
+
+function createFunActivityTemplates(
+  profile: UserProfile,
+  aiAnalysis?: AiSystemAnalysis | null
+): SpecialQuestTemplate[] {
+  const personalization = getPersonalization(aiAnalysis, profile);
+  const duration = asPositiveMinutes(
+    personalization.questPreferences.durationMinutes,
+    profile.availableMinutesWeekday
+  );
+  const shortDuration = Math.max(10, Math.min(25, duration));
+  const categories = personalization.interestCategories.length
+    ? personalization.interestCategories
+    : (["other"] as InterestCategory[]);
+  const interest =
+    profile.studyInterest !== "None"
+      ? profile.studyInterest.toLowerCase()
+      : personalization.explicitInterests[0]?.toLowerCase() ?? "something useful";
+  const sidePath =
+    personalization.secondaryJob.title ||
+    profile.secondaryJobOverride ||
+    "side path";
+
+  return [
+    createFunActivityTemplate(9301, {
+      title: "New Route Walk",
+      description:
+        `Go for a ${shortDuration}-minute walk somewhere slightly different and notice one thing you usually miss.`,
+      xp: 18,
+      statRewards: { agility: 1, vitality: 1 },
+      source: "workout",
+      durationMinutes: shortDuration,
+      completionCondition:
+        "Finish the walk and record one detail from the route.",
+      tags: ["walking", "outdoors", "lifestyle"],
+      categories: ["outdoors"],
+    }),
+    createFunActivityTemplate(9302, {
+      title: "Simple New Meal Trial",
+      description:
+        "Try cooking or assembling one simple meal you have not made recently.",
+      xp: 18,
+      statRewards: { magicResistance: 1, discipline: 1 },
+      source: "diet",
+      durationMinutes: Math.max(15, shortDuration),
+      completionCondition:
+        "Make the meal and write down whether it is worth repeating.",
+      tags: ["cooking", "nutrition", "lifestyle"],
+      categories: ["nutrition"],
+    }),
+    createFunActivityTemplate(9303, {
+      title: `${interest.charAt(0).toUpperCase() + interest.slice(1)} Micro-Challenge`,
+      description:
+        `Spend ${shortDuration} minutes learning or practicing ${interest}, then write down three useful takeaways.`,
+      xp: 20,
+      statRewards: { intelligence: 2 },
+      source: "interest",
+      durationMinutes: shortDuration,
+      completionCondition:
+        "Complete the learning block and capture three takeaways.",
+      tags: ["study", "learning", "focus"],
+      categories,
+    }),
+    createFunActivityTemplate(9304, {
+      title: "Interesting Photo Recon",
+      description:
+        "Take a photo of something interesting outside or nearby, then give it a one-sentence caption.",
+      xp: 15,
+      statRewards: { agility: 1, intelligence: 1 },
+      source: "interest",
+      durationMinutes: 15,
+      completionCondition:
+        "Capture one photo and write one sentence about why it caught your attention.",
+      tags: ["creativity", "outdoors", "lifestyle"],
+      categories: ["creativity", "outdoors"],
+    }),
+    createFunActivityTemplate(9305, {
+      title: "One-Shelf Reset",
+      description:
+        "Organize one small visible part of your room, desk, bag, or kitchen.",
+      xp: 16,
+      statRewards: { discipline: 2 },
+      source: "discipline",
+      durationMinutes: 10,
+      completionCondition:
+        "Reset one small area until it is visibly easier to use.",
+      tags: ["organizing", "environment", "discipline"],
+      categories: ["discipline_habit_building"],
+    }),
+    createFunActivityTemplate(9306, {
+      title: "Educational Video Loot",
+      description:
+        "Watch one useful educational video and write down three ideas, tactics, or questions it gave you.",
+      xp: 18,
+      statRewards: { intelligence: 2 },
+      source: "interest",
+      durationMinutes: Math.max(15, shortDuration),
+      completionCondition:
+        "Finish the video and capture three useful notes.",
+      tags: ["study", "learning", "strategy"],
+      categories,
+    }),
+    createFunActivityTemplate(9307, {
+      title: "Mobility Reset",
+      description:
+        `Do a ${Math.min(15, shortDuration)}-minute mobility or stretching routine that leaves you feeling better, not drained.`,
+      xp: 15,
+      statRewards: { vitality: 1, agility: 1 },
+      source: "recovery",
+      durationMinutes: Math.min(15, shortDuration),
+      completionCondition:
+        "Finish a gentle routine and note the area that felt better.",
+      tags: ["mobility", "recovery", "lifestyle"],
+      categories: ["fitness"],
+    }),
+    createFunActivityTemplate(9308, {
+      title: `${sidePath} Curiosity Sprint`,
+      description:
+        `Explore one small part of your ${sidePath} path: a tutorial, tool, idea, place, or practice rep that feels interesting today.`,
+      xp: 20,
+      statRewards: { intelligence: 1, discipline: 1 },
+      source: "secondary_job",
+      durationMinutes: shortDuration,
+      completionCondition:
+        "Finish one small exploration and record the next thing you would try.",
+      tags: ["secondary-job", "curiosity", "practice"],
+      categories,
+    }),
+  ];
+}
+
+export function createFunSpecialActivity(
+  dateString: string,
+  stats: Stats,
+  profile: UserProfile,
+  aiAnalysis?: AiSystemAnalysis | null,
+  recentActivities: SpecialQuest[] = [],
+  recoveryMode = false
+): SpecialQuest {
+  const build = getProfileInfluencedBuild(stats, profile);
+  const recentTitles = new Set(
+    recentActivities
+      .slice(0, 8)
+      .map((activity) => activity.title.trim().toLowerCase())
+  );
+  let pool = createFunActivityTemplates(profile, aiAnalysis).filter((activity) =>
+    activity.preferredBuilds.includes(build)
+  );
+
+  if (!profile.wantsStudyQuests) {
+    pool = pool.filter(
+      (activity) =>
+        !activity.tags.includes("study") &&
+        !activity.tags.includes("learning")
+    );
+  }
+
+  if (!profile.wantsDietSupport) {
+    pool = pool.filter(
+      (activity) =>
+        activity.source !== "diet" &&
+        !activity.tags.includes("nutrition")
+    );
+  }
+
+  if (!profile.wantsLifestyleQuests) {
+    pool = pool.filter(
+      (activity) =>
+        !activity.tags.includes("lifestyle") &&
+        !activity.tags.includes("environment") &&
+        !activity.tags.includes("outdoors")
+    );
+  }
+
+  if (recoveryMode) {
+    pool = pool.filter((activity) => activity.source !== "workout");
+  }
+
+  pool = pool.filter((activity) =>
+    isQuestAllowedForProfileDate(activity, profile, dateString)
+  );
+
+  if (pool.length === 0) {
+    pool = createFunActivityTemplates(profile, aiAnalysis).filter(
+      (activity) => activity.source !== "workout"
+    );
+  }
+
+  const dayNumber = getDayNumberFromDate(dateString);
+  const preferredSources = getPreferredSources(
+    profile,
+    normalizeSpecialQuestMemory(),
+    pool
+  );
+  const ranked = pool
+    .map((activity, index) => {
+      const source = inferQuestSource(activity);
+      let score = 0;
+
+      if (!recentTitles.has(activity.title.trim().toLowerCase())) score += 60;
+      if (preferredSources.includes(source)) score += 20;
+      if (source !== "workout") score += 12;
+
+      return {
+        activity,
+        score,
+        stableTieBreaker: Math.abs(dayNumber + index * 23) % 101,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.score - a.score || a.stableTieBreaker - b.stableTieBreaker
+    );
+  const template = ranked[0]?.activity ?? pool[0];
+
+  return {
+    ...template,
+    id: 700000 + Math.floor(Math.random() * 100000),
+    xp: scaleXp(template.xp, profile.difficulty),
+    completed: false,
+    awardedToday: false,
+    assignedDate: dateString,
+    status: "pending",
+  };
+}
+
 export function normalizeSpecialQuestMemory(
   memory?: SpecialQuestMemory | null
 ): SpecialQuestMemory {
@@ -1166,32 +1393,6 @@ export function scalePenaltyText(
   return `${basePenalty} Standard mode: finish the corrective action before entertainment.`;
 }
 
-function isWorkoutQuest(quest: Pick<SpecialQuestTemplate, "title" | "description" | "source" | "tags">) {
-  return (
-    quest.source === "workout" ||
-    quest.tags.includes("fitness") ||
-    quest.tags.includes("workout") ||
-    isWorkoutRelatedText(quest.title, quest.description)
-  );
-}
-
-function isWorkoutQuestAllowedToday(
-  quest: Pick<SpecialQuestTemplate, "title" | "description" | "source" | "tags">,
-  profile: UserProfile,
-  dateString: string
-) {
-  if (!isWorkoutQuest(quest)) return true;
-  if (!isWorkoutDay(profile, dateString)) return false;
-
-  const todayName = getWeekdayName(dateString);
-  const text = `${quest.title} ${quest.description}`.toLowerCase();
-  const mentionedDays = weekdayOrder.filter((day) =>
-    text.includes(day.toLowerCase())
-  );
-
-  return mentionedDays.length === 0 || mentionedDays.includes(todayName);
-}
-
 function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString()): Quest {
   const workoutDay = isWorkoutDay(profile, dateString);
   const prefersCardio =
@@ -1303,7 +1504,7 @@ export function createDailyQuests(
       xp: scaleXp(20, profile.difficulty),
       completed: false,
       awardedToday: false,
-      statRewards: { vitality: 2 },
+      statRewards: { vitality: 1 },
     },
   ];
 
@@ -1353,7 +1554,7 @@ export function filterQuestPoolForProfile(
   const dynamicQuests = createPersonalizedQuestTemplates(profile, aiAnalysis);
   const completePool = [...specialQuestPool, ...dynamicQuests];
   const scheduleFilteredPool = completePool.filter(
-    (quest) => isWorkoutQuestAllowedToday(quest, profile, dateString)
+    (quest) => isQuestAllowedForProfileDate(quest, profile, dateString)
   );
 
   let pool = scheduleFilteredPool.filter((quest) =>
@@ -1569,6 +1770,7 @@ export function getActiveAiQuest(
   aiQuestIndex: number
 ): AiSpecialQuestSuggestion | null {
   if (!aiAnalysis?.specialQuests?.length) return null;
+  if (aiQuestIndex < 0) return null;
   const safeIndex =
     ((aiQuestIndex % aiAnalysis.specialQuests.length) +
       aiAnalysis.specialQuests.length) %
@@ -1614,10 +1816,10 @@ export function getNextAiQuestIndex(
         interestCategories: quest.interestCategories,
       }))
       .filter(
-        (quest) => isWorkoutQuestAllowedToday(quest, profile, getTodayString())
+        (quest) => isQuestAllowedForProfileDate(quest, profile, getTodayString())
       );
 
-    if (questPool.length === 0) return currentIndex;
+    if (questPool.length === 0) return -1;
 
     const allowedTitles = new Set(
       questPool.map((quest) => quest.title.trim().toLowerCase())
@@ -1660,7 +1862,7 @@ export function getNextAiQuestIndex(
     if (
       candidate &&
       (!profile ||
-        isWorkoutQuestAllowedToday(
+        isQuestAllowedForProfileDate(
           {
             title: candidate.title,
             description: candidate.description,
@@ -1708,7 +1910,7 @@ export function getPreviewSpecialQuests(
       completionCondition: quest.completionCondition,
       interestCategories: quest.interestCategories,
       }))
-      .filter((quest) => isWorkoutQuestAllowedToday(quest, profile, getTodayString()))
+      .filter((quest) => isQuestAllowedForProfileDate(quest, profile, getTodayString()))
       .slice(0, 6);
   }
 
@@ -1765,21 +1967,6 @@ export function appendLog(
   };
 
   return [newEntry, ...currentLog].slice(0, 100);
-}
-
-export function addStatRewards(
-  currentStats: Stats,
-  rewards: Partial<Stats>
-): Stats {
-  return {
-    strength: currentStats.strength + (rewards.strength ?? 0),
-    vitality: currentStats.vitality + (rewards.vitality ?? 0),
-    discipline: currentStats.discipline + (rewards.discipline ?? 0),
-    intelligence: currentStats.intelligence + (rewards.intelligence ?? 0),
-    agility: currentStats.agility + (rewards.agility ?? 0),
-    magicResistance:
-      currentStats.magicResistance + (rewards.magicResistance ?? 0),
-  };
 }
 
 export function createNoSpecialQuest(
@@ -1895,7 +2082,7 @@ export function getQuestStatRewards(
     case 2:
       return { magicResistance: 2, vitality: 1 };
     case 3:
-      return { vitality: 2 };
+      return { vitality: 1 };
     default:
       return {};
   }
@@ -1924,6 +2111,84 @@ export function cancelSpecialQuestForRecovery(
     awardedToday: true,
     status: "waived",
   };
+}
+
+function normalizeFunSpecialActivities(
+  activities: SpecialQuest[] | undefined
+): SpecialQuest[] {
+  if (!Array.isArray(activities)) return [];
+
+  return activities
+    .filter((activity) => activity && typeof activity === "object")
+    .map((activity): SpecialQuest => {
+      const status: SpecialQuest["status"] =
+        activity.status === "completed" ||
+        activity.status === "accepted" ||
+        activity.status === "urgent" ||
+        activity.status === "waived"
+          ? activity.status
+          : "pending";
+
+      return {
+        id:
+          typeof activity.id === "number" && Number.isFinite(activity.id)
+            ? activity.id
+            : 700000 + Math.floor(Math.random() * 100000),
+        title:
+          typeof activity.title === "string" && activity.title.trim()
+            ? activity.title.trim()
+            : "Fun Special Activity",
+        description:
+          typeof activity.description === "string"
+            ? activity.description.trim()
+            : "Complete one small activity that breaks boredom.",
+        xp:
+          typeof activity.xp === "number" && Number.isFinite(activity.xp)
+            ? Math.max(0, Math.round(activity.xp))
+            : 15,
+        statRewards: normalizePartialStats(activity.statRewards),
+        penalty:
+          typeof activity.penalty === "string" && activity.penalty.trim()
+            ? activity.penalty
+            : "No penalty. Fun special activities are optional.",
+        penaltyAction: activity.penaltyAction,
+        preferredBuilds: Array.isArray(activity.preferredBuilds)
+          ? activity.preferredBuilds
+          : ([
+              "Balanced",
+              "Warrior",
+              "Endurance",
+              "Monk",
+              "Scholar",
+            ] as BuildType[]),
+        tags: Array.isArray(activity.tags)
+          ? activity.tags.filter((tag) => typeof tag === "string" && tag.trim())
+          : ["fun"],
+        source: activity.source,
+        jobFocus: activity.jobFocus,
+        durationMinutes:
+          typeof activity.durationMinutes === "number" &&
+          Number.isFinite(activity.durationMinutes)
+            ? Math.max(1, Math.round(activity.durationMinutes))
+            : undefined,
+        completionCondition:
+          typeof activity.completionCondition === "string"
+            ? activity.completionCondition.trim()
+            : undefined,
+        interestCategories: Array.isArray(activity.interestCategories)
+          ? activity.interestCategories
+          : undefined,
+        completed: Boolean(activity.completed),
+        awardedToday: Boolean(activity.awardedToday),
+        assignedDate:
+          typeof activity.assignedDate === "string" &&
+          activity.assignedDate.trim()
+            ? activity.assignedDate
+            : getTodayString(),
+        status,
+      };
+    })
+    .slice(0, 12);
 }
 
 export function createNewUserRecord(name: string): UserRecord {
@@ -1956,6 +2221,7 @@ export function createNewUserRecord(name: string): UserRecord {
     history: [],
     workoutJournal: [],
     householdTasks: [],
+    funSpecialActivities: [],
     foodJournal: [],
     dietFeedback: [],
     specialQuest,
@@ -2041,6 +2307,9 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
   );
   const safeWorkoutJournal = normalizeWorkoutJournalEntries(user.workoutJournal);
   const safeHouseholdTasks = normalizeHouseholdTasks(user.householdTasks);
+  const safeFunSpecialActivities = normalizeFunSpecialActivities(
+    user.funSpecialActivities
+  );
   const safeFoodJournal = normalizeFoodJournalEntries(user.foodJournal);
   const safeDietFeedback = Array.isArray(user.dietFeedback)
     ? user.dietFeedback
@@ -2068,6 +2337,7 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       stats: safeStats,
       workoutJournal: safeWorkoutJournal,
       householdTasks: safeHouseholdTasks,
+      funSpecialActivities: safeFunSpecialActivities,
       foodJournal: safeFoodJournal,
       dietFeedback: safeDietFeedback,
       dailyHp: user.dailyHpDate === today ? user.dailyHp ?? null : null,
@@ -2144,6 +2414,7 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     history: nextHistory,
     workoutJournal: safeWorkoutJournal,
     householdTasks: safeHouseholdTasks,
+    funSpecialActivities: safeFunSpecialActivities,
     foodJournal: safeFoodJournal,
     dietFeedback: safeDietFeedback,
     specialQuest: nextSpecialQuest,
