@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../store";
 import {
   artifactOrder,
@@ -12,17 +12,65 @@ import {
   getArtifactUnlockProgress,
   isPurchasableAvailability,
 } from "../artifacts";
-import type { Artifact, ArtifactActionResult } from "../types";
+import type { Artifact, ArtifactActionResult, Stats } from "../types";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import ActionButton from "../components/ActionButton";
 import CollapsibleSection from "../components/CollapsibleSection";
 import ArtifactAnimationOverlay from "../components/ArtifactAnimationOverlay";
 
-function formatRemaining(expiresAt: string | null) {
-  if (!expiresAt) return "No expiry";
+type ArtifactFilter =
+  | "all"
+  | "owned"
+  | "not_owned"
+  | "active"
+  | "common"
+  | "rare"
+  | "epic"
+  | "legendary"
+  | "fool";
 
-  const remainingMs = new Date(expiresAt).getTime() - Date.now();
+type JusticeDraft = {
+  from: keyof Stats;
+  to: keyof Stats;
+  amount: number;
+};
+
+const statKeys: Array<keyof Stats> = [
+  "strength",
+  "vitality",
+  "discipline",
+  "intelligence",
+  "agility",
+  "magicResistance",
+];
+
+const statLabels: Record<keyof Stats, string> = {
+  strength: "Strength",
+  vitality: "Vitality",
+  discipline: "Discipline",
+  intelligence: "Intelligence",
+  agility: "Agility",
+  magicResistance: "Magic Resistance",
+};
+
+const artifactFilters: Array<{ key: ArtifactFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "owned", label: "Owned" },
+  { key: "not_owned", label: "Not owned" },
+  { key: "active", label: "Active" },
+  { key: "common", label: "Common" },
+  { key: "rare", label: "Rare" },
+  { key: "epic", label: "Epic" },
+  { key: "legendary", label: "Legendary" },
+  { key: "fool", label: "The Fool" },
+];
+
+function formatRemaining(expiresAt: string | null, nowMs: number | null) {
+  if (!expiresAt) return "No expiry";
+  if (!nowMs) return "Calculating...";
+
+  const remainingMs = new Date(expiresAt).getTime() - nowMs;
   if (remainingMs <= 0) return "Expired";
 
   const hours = Math.floor(remainingMs / (1000 * 60 * 60));
@@ -42,6 +90,25 @@ function statusLabel(artifact: Artifact) {
   return "Locked";
 }
 
+function getStrongestStat(stats: Stats): keyof Stats {
+  return [...statKeys].sort((a, b) => stats[b] - stats[a])[0];
+}
+
+function getWeakestDifferentStat(
+  stats: Stats,
+  from: keyof Stats
+): keyof Stats {
+  return [...statKeys]
+    .filter((key) => key !== from)
+    .sort((a, b) => stats[a] - stats[b])[0];
+}
+
+function clampJusticeAmount(value: number, max: number) {
+  if (max <= 0) return 0;
+  if (!Number.isFinite(value)) return 1;
+  return Math.max(1, Math.min(max, Math.floor(value)));
+}
+
 export default function ArtifactsPage() {
   const {
     isLoaded,
@@ -57,9 +124,20 @@ export default function ArtifactsPage() {
     purchaseArtifact,
   } = useApp();
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [artifactFilter, setArtifactFilter] = useState<ArtifactFilter>("all");
+  const [justiceDraft, setJusticeDraft] = useState<JusticeDraft | null>(null);
   const [animationEvent, setAnimationEvent] =
     useState<ArtifactActionResult | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const dismissAnimation = useCallback(() => setAnimationEvent(null), []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   if (!isLoaded) {
     return (
@@ -78,6 +156,40 @@ export default function ArtifactsPage() {
     .filter((artifact): artifact is Artifact => Boolean(artifact));
   const ownedArtifacts = orderedArtifacts.filter((artifact) => artifact.quantity > 0);
   const artifactLog = log.filter((entry) => entry.type === "artifact");
+  const activeArtifactIds = new Set(
+    activeArtifactEffects.map((effect) => effect.artifactId)
+  );
+
+  function matchesFilter(artifact: Artifact) {
+    switch (artifactFilter) {
+      case "owned":
+        return artifact.quantity > 0;
+      case "not_owned":
+        return artifact.quantity <= 0;
+      case "active":
+        return activeArtifactIds.has(artifact.key);
+      case "common":
+      case "rare":
+      case "epic":
+      case "legendary":
+        return artifact.rarity === artifactFilter;
+      case "fool":
+        return artifact.key === "fool_last_trick";
+      case "all":
+      default:
+        return true;
+    }
+  }
+
+  const shopArtifacts = orderedArtifacts.filter(
+    (artifact) =>
+      isPurchasableAvailability(getArtifactMeta(artifact.key).availability) &&
+      matchesFilter(artifact)
+  );
+  const inventoryArtifacts = orderedArtifacts.filter(
+    (artifact) =>
+      (artifact.quantity > 0 || artifact.unlocked) && matchesFilter(artifact)
+  );
 
   function isActivationBlocked(artifact: Artifact) {
     if (!artifact.usable || artifact.quantity <= 0) return true;
@@ -99,10 +211,72 @@ export default function ArtifactsPage() {
   }
 
   function handleActivateArtifact(artifact: Artifact) {
+    if (artifact.key === "justice_balance_scale") {
+      if (!activeUser) return;
+
+      const from = getStrongestStat(activeUser.stats);
+      const to = getWeakestDifferentStat(activeUser.stats, from);
+      setJusticeDraft({
+        from,
+        to,
+        amount: clampJusticeAmount(1, Math.min(20, activeUser.stats[from])),
+      });
+      setSelectedArtifact(null);
+      return;
+    }
+
     const result = activateArtifact(artifact.key);
 
     if (result.ok) {
       setAnimationEvent(result);
+    }
+  }
+
+  function updateJusticeFrom(from: keyof Stats) {
+    if (!activeUser) return;
+
+    const to =
+      justiceDraft?.to && justiceDraft.to !== from
+        ? justiceDraft.to
+        : getWeakestDifferentStat(activeUser.stats, from);
+    const maxAmount = Math.min(20, activeUser.stats[from]);
+
+    setJusticeDraft({
+      from,
+      to,
+      amount: clampJusticeAmount(justiceDraft?.amount ?? 1, maxAmount),
+    });
+  }
+
+  function updateJusticeTo(to: keyof Stats) {
+    if (!activeUser || !justiceDraft) return;
+
+    setJusticeDraft({
+      ...justiceDraft,
+      to,
+    });
+  }
+
+  function updateJusticeAmount(amount: number) {
+    if (!activeUser || !justiceDraft) return;
+
+    const maxAmount = Math.min(20, activeUser.stats[justiceDraft.from]);
+    setJusticeDraft({
+      ...justiceDraft,
+      amount: clampJusticeAmount(amount, maxAmount),
+    });
+  }
+
+  function confirmJusticeRebalance() {
+    if (!justiceDraft) return;
+
+    const result = activateArtifact("justice_balance_scale", {
+      justiceRebalance: justiceDraft,
+    });
+
+    if (result.ok) {
+      setAnimationEvent(result);
+      setJusticeDraft(null);
     }
   }
 
@@ -149,7 +323,7 @@ export default function ArtifactsPage() {
             locked ? "blur-[1px]" : ""
           }`}
         >
-          <div className={`text-3xl font-black tracking-widest ${locked ? "text-zinc-700" : styles.text}`}>
+          <div className={`text-5xl font-black ${locked ? "text-zinc-700" : styles.text}`}>
             {locked ? "???" : artifact.symbol}
           </div>
         </div>
@@ -217,6 +391,17 @@ export default function ArtifactsPage() {
     );
   }
 
+  const justiceMaxAmount =
+    justiceDraft && activeUser
+      ? Math.min(20, activeUser.stats[justiceDraft.from])
+      : 0;
+  const justiceInvalid =
+    !justiceDraft ||
+    !activeUser ||
+    justiceDraft.from === justiceDraft.to ||
+    justiceDraft.amount <= 0 ||
+    justiceDraft.amount > justiceMaxAmount;
+
   return (
     <div className="space-y-6">
       <h1 className="text-3xl text-blue-400">Artifacts</h1>
@@ -242,6 +427,26 @@ export default function ArtifactsPage() {
         </div>
       </PanelCard>
 
+      <PanelCard className="border-zinc-700">
+        <SectionTitle title="Artifact Filters" colorClass="text-zinc-200" />
+        <div className="flex flex-wrap gap-2">
+          {artifactFilters.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              onClick={() => setArtifactFilter(filter.key)}
+              className={`rounded-full border px-3 py-2 text-sm ${
+                artifactFilter === filter.key
+                  ? "border-blue-400 bg-blue-500/20 text-blue-100"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      </PanelCard>
+
       <PanelCard className="border-yellow-500">
         <SectionTitle title="Active Effects" colorClass="text-yellow-400" />
         {activeArtifactEffects.length > 0 ? (
@@ -258,7 +463,7 @@ export default function ArtifactsPage() {
                   <p className="font-medium text-yellow-100">{meta.title}</p>
                   <p className="mt-1 text-sm text-zinc-300">{meta.effectLabel}</p>
                   <p className="mt-2 text-sm text-yellow-200">
-                    {formatRemaining(effect.expiresAt)}
+                    {formatRemaining(effect.expiresAt, nowMs)}
                   </p>
                 </div>
               );
@@ -272,19 +477,25 @@ export default function ArtifactsPage() {
       <PanelCard className="border-purple-500">
         <SectionTitle title="Artifact Shop" colorClass="text-purple-400" />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {orderedArtifacts
-            .filter((artifact) =>
-              isPurchasableAvailability(getArtifactMeta(artifact.key).availability)
-            )
-            .map((artifact) => renderCard(artifact, "shop"))}
+          {shopArtifacts.map((artifact) => renderCard(artifact, "shop"))}
         </div>
+        {shopArtifacts.length === 0 && (
+          <p className="text-sm text-zinc-400">
+            No shop artifacts match this filter.
+          </p>
+        )}
       </PanelCard>
 
       <PanelCard className="border-blue-500">
         <SectionTitle title="Artifact Inventory" colorClass="text-blue-400" />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {orderedArtifacts.map((artifact) => renderCard(artifact, "inventory"))}
+          {inventoryArtifacts.map((artifact) => renderCard(artifact, "inventory"))}
         </div>
+        {inventoryArtifacts.length === 0 && (
+          <p className="text-sm text-zinc-400">
+            No owned or unlocked artifacts match this filter.
+          </p>
+        )}
       </PanelCard>
 
       <PanelCard className="border-zinc-600">
@@ -334,6 +545,126 @@ export default function ArtifactsPage() {
               <p><span className="text-zinc-500">Lore:</span> {selectedArtifact.lore}</p>
               <p><span className="text-zinc-500">Unlock:</span> {selectedArtifact.unlockHint}</p>
               <p><span className="text-zinc-500">Animation:</span> {selectedArtifact.animation}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {justiceDraft && activeUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-lg border border-fuchsia-500/50 bg-zinc-950 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-2xl text-white">Justice&apos;s Balance Scale</h2>
+                <p className="text-sm text-zinc-400">
+                  Choose exactly which stat points to move. Max 20 points per use.
+                </p>
+              </div>
+              <ActionButton onClick={() => setJusticeDraft(null)} variant="gray">
+                Close
+              </ActionButton>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <label className="grid gap-2 text-sm text-zinc-300">
+                Move points from
+                <select
+                  value={justiceDraft.from}
+                  onChange={(event) =>
+                    updateJusticeFrom(event.target.value as keyof Stats)
+                  }
+                  className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                >
+                  {statKeys.map((key) => (
+                    <option key={key} value={key}>
+                      {statLabels[key]} ({activeUser.stats[key]})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm text-zinc-300">
+                Move points to
+                <select
+                  value={justiceDraft.to}
+                  onChange={(event) =>
+                    updateJusticeTo(event.target.value as keyof Stats)
+                  }
+                  className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                >
+                  {statKeys.map((key) => (
+                    <option key={key} value={key} disabled={key === justiceDraft.from}>
+                      {statLabels[key]} ({activeUser.stats[key]})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm text-zinc-300">
+                Amount to move
+                <input
+                  type="range"
+                  min="1"
+                  max={Math.max(1, justiceMaxAmount)}
+                  value={Math.max(1, justiceDraft.amount)}
+                  onChange={(event) =>
+                    updateJusticeAmount(Number(event.target.value))
+                  }
+                  disabled={justiceMaxAmount <= 0}
+                />
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-[1fr_120px]">
+                <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm text-zinc-300">
+                  {justiceMaxAmount > 0 ? (
+                    <p>
+                      Preview: move{" "}
+                      <span className="text-white">{justiceDraft.amount}</span>{" "}
+                      point(s) from{" "}
+                      <span className="text-white">
+                        {statLabels[justiceDraft.from]}
+                      </span>{" "}
+                      to{" "}
+                      <span className="text-white">
+                        {statLabels[justiceDraft.to]}
+                      </span>
+                      .
+                    </p>
+                  ) : (
+                    <p>The selected source stat has no points to move.</p>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max={Math.max(1, justiceMaxAmount)}
+                  value={justiceDraft.amount}
+                  onChange={(event) =>
+                    updateJusticeAmount(Number(event.target.value))
+                  }
+                  disabled={justiceMaxAmount <= 0}
+                  className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                />
+              </div>
+
+              {justiceDraft.from === justiceDraft.to && (
+                <p className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                  Choose two different stats. Justice cannot move points into the same stat.
+                </p>
+              )}
+
+              <div className="flex flex-wrap gap-3">
+                <ActionButton
+                  onClick={confirmJusticeRebalance}
+                  variant={justiceInvalid ? "gray" : "purple"}
+                  disabled={justiceInvalid}
+                >
+                  Activate Justice
+                </ActionButton>
+                <ActionButton onClick={() => setJusticeDraft(null)} variant="gray">
+                  Cancel
+                </ActionButton>
+              </div>
             </div>
           </div>
         </div>

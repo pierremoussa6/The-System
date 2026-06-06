@@ -648,7 +648,10 @@ export type AppState = {
   addFoodJournalEntry: (entry: Omit<FoodJournalEntry, "id">) => void;
   deleteFoodJournalEntry: (id: string) => void;
   saveDietFeedback: (feedback: DietFeedback) => void;
-  activateArtifact: (key: ArtifactKey) => ArtifactActionResult;
+  activateArtifact: (
+    key: ArtifactKey,
+    options?: ArtifactActivationOptions
+  ) => ArtifactActionResult;
   purchaseArtifact: (key: ArtifactKey) => ArtifactActionResult;
   updateWorkoutProgram: (program: WorkoutProgram | null) => void;
 
@@ -721,6 +724,16 @@ export type ArtifactHistoryEntry = {
   streakEffect?: string;
   taskId?: string;
   details: string;
+};
+
+export type JusticeRebalanceInput = {
+  from: keyof Stats;
+  to: keyof Stats;
+  amount: number;
+};
+
+export type ArtifactActivationOptions = {
+  justiceRebalance?: JusticeRebalanceInput;
 };
 
 export type ArtifactActionResult = {

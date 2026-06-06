@@ -13,6 +13,7 @@ import type {
   AiSystemAnalysis,
   AiWeeklyPlan,
   AppState,
+  ArtifactActivationOptions,
   ArtifactActionResult,
   ArtifactKey,
   ActiveEffects,
@@ -150,6 +151,40 @@ function getLocalActiveUser(data: MultiUserData) {
   );
 }
 
+function getTimestampFromId(id: string | undefined) {
+  const timestamp = Number(id?.split("-")[0]);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getUserLatestActivityTime(user: UserRecord | null | undefined) {
+  if (!user) return 0;
+
+  const logTimes = (user.log ?? []).map((entry) =>
+    Math.max(getTimestampFromId(entry.id), Date.parse(entry.date) || 0)
+  );
+  const artifactHistoryTimes = (user.artifactHistory ?? []).map((entry) =>
+    Math.max(getTimestampFromId(entry.id), Date.parse(entry.date) || 0)
+  );
+  const activeEffectTimes = normalizeActiveEffects(user.activeEffects).artifactEffects.map(
+    (effect) => Date.parse(effect.updatedAt || effect.createdAt) || 0
+  );
+
+  return Math.max(0, ...logTimes, ...artifactHistoryTimes, ...activeEffectTimes);
+}
+
+function chooseFreshestUserRecord(
+  remoteRecord: UserRecord | null,
+  localRecord: UserRecord | null
+) {
+  if (!remoteRecord) return localRecord;
+  if (!localRecord) return remoteRecord;
+
+  const localActivityTime = getUserLatestActivityTime(localRecord);
+  const remoteActivityTime = getUserLatestActivityTime(remoteRecord);
+
+  return localActivityTime > remoteActivityTime ? localRecord : remoteRecord;
+}
+
 function isUserRecord(value: unknown): value is UserRecord {
   if (!value || typeof value !== "object") return false;
 
@@ -210,6 +245,50 @@ function getUserStatePayload(user: UserRecord) {
     app_state_json: user,
     updated_at: new Date().toISOString(),
   };
+}
+
+function getCompatibleUserStatePayload(user: UserRecord) {
+  return {
+    user_id: user.id,
+    total_xp: user.totalXp,
+    streak: user.streak,
+    last_completion_date: user.lastCompletionDate,
+    strength: user.stats.strength,
+    vitality: user.stats.vitality,
+    discipline: user.stats.discipline,
+    focus: user.stats.intelligence,
+    daily_hp: user.dailyHp,
+    daily_hp_date: user.dailyHpDate,
+    ai_analysis_json: user.aiAnalysis,
+    ai_weekly_plan_json: user.aiWeeklyPlan,
+    ai_quest_index: user.aiQuestIndex,
+    app_state_json: user,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+async function saveUserStateToRemote(user: UserRecord, context: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return;
+
+  const { error } = await supabase
+    .from("user_state")
+    .upsert(getUserStatePayload(user), { onConflict: "user_id" });
+
+  if (!error) return;
+
+  console.error(`Failed to save remote user state (${context})`, error);
+
+  const { error: fallbackError } = await supabase
+    .from("user_state")
+    .upsert(getCompatibleUserStatePayload(user), { onConflict: "user_id" });
+
+  if (fallbackError) {
+    console.error(
+      `Failed to save compatible remote user state (${context})`,
+      fallbackError
+    );
+  }
 }
 
 function applyArtifactUnlockRewards(user: UserRecord): UserRecord {
@@ -315,9 +394,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isLoaded = clientReady && remoteStateLoaded;
 
   useEffect(() => {
-    if (!clientReady || authStatus !== "unconfigured") return;
+    if (!clientReady) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [authStatus, clientReady, data]);
+  }, [clientReady, data]);
 
   useEffect(() => {
     if (!clientReady || !isUsingRemoteState || !authUser) {
@@ -355,10 +434,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : null;
 
       const localUser = getLocalActiveUser(loadInitialMultiUserData());
+      const freshestRecord = chooseFreshestUserRecord(remoteRecord, localUser);
       const nextUser = prepareAuthenticatedUserRecord(
         authUserId,
         displayName,
-        remoteRecord ?? localUser
+        freshestRecord
       );
 
       setData(createSingleUserData(nextUser));
@@ -366,13 +446,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       remoteSaveReadyRef.current = true;
 
       if (!remoteRecord) {
-        const { error: upsertError } = await supabase
-          .from("user_state")
-          .upsert(getUserStatePayload(nextUser), { onConflict: "user_id" });
-
-        if (upsertError) {
-          console.error("Failed to create remote user state", upsertError);
-        }
+        await saveUserStateToRemote(nextUser, "create");
+      } else if (freshestRecord === localUser && freshestRecord !== remoteRecord) {
+        await saveUserStateToRemote(nextUser, "local newer than remote");
       }
     }
 
@@ -411,16 +487,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     saveTimeoutRef.current = setTimeout(() => {
-      void supabase
-        .from("user_state")
-        .upsert(getUserStatePayload(activeRemoteUser), {
-          onConflict: "user_id",
-        })
-        .then(({ error }) => {
-          if (error) {
-            console.error("Failed to save remote user state", error);
-          }
-        });
+      void saveUserStateToRemote(activeRemoteUser, "debounced");
     }, SAVE_DELAY_MS);
 
     return () => {
@@ -433,13 +500,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const activeUser =
     data.users.find((user) => user.id === data.activeUserId) ?? null;
 
-  function updateActiveUser(updater: (user: UserRecord) => UserRecord) {
-    setData((current) => ({
-      ...current,
-      users: current.users.map((user) =>
-        user.id === current.activeUserId ? updater(user) : user
-      ),
-    }));
+  function updateActiveUser(
+    updater: (user: UserRecord) => UserRecord,
+    options: { persistNow?: boolean; persistContext?: string } = {}
+  ) {
+    let nextUserToPersist: UserRecord | null = null;
+    let nextDataToPersist: MultiUserData | null = null;
+
+    setData((current) => {
+      const nextUsers = current.users.map((user) => {
+        if (user.id !== current.activeUserId) return user;
+
+        const nextUser = updater(user);
+        nextUserToPersist = nextUser;
+        return nextUser;
+      });
+      const nextData = {
+        ...current,
+        users: nextUsers,
+      };
+
+      nextDataToPersist = nextData;
+      return nextData;
+    });
+
+    if (options.persistNow && nextUserToPersist) {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      if (clientReady && nextDataToPersist) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextDataToPersist));
+      }
+
+      if (
+        isUsingRemoteState &&
+        remoteLoadedUserId === authUser?.id &&
+        remoteSaveReadyRef.current
+      ) {
+        void saveUserStateToRemote(
+          nextUserToPersist,
+          options.persistContext ?? "immediate"
+        );
+      }
+    }
   }
 
   function toggleQuest(id: number) {
@@ -1193,10 +1298,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     )[0];
   }
 
-  function getStrongestStatKey(stats: Stats): keyof Stats {
-    return (Object.keys(stats) as Array<keyof Stats>).sort(
-      (a, b) => stats[b] - stats[a]
-    )[0];
+  function isStatKey(value: unknown): value is keyof Stats {
+    return (
+      value === "strength" ||
+      value === "vitality" ||
+      value === "discipline" ||
+      value === "intelligence" ||
+      value === "agility" ||
+      value === "magicResistance"
+    );
   }
 
   function addPointsToWeakestStats(stats: Stats, points: number): Stats {
@@ -1326,12 +1436,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           details: `${state.cost} spendable XP spent. Lifetime XP remains ${current.totalXp}; rank cannot decrease from this purchase.`,
         }),
       };
-    });
+    }, { persistNow: true, persistContext: "artifact purchase" });
 
     return result;
   }
 
-  function activateArtifact(key: ArtifactKey): ArtifactActionResult {
+  function activateArtifact(
+    key: ArtifactKey,
+    options?: ArtifactActivationOptions
+  ): ArtifactActionResult {
     let result = createArtifactActionResult(
       key,
       "activation",
@@ -1679,16 +1792,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (key === "justice_balance_scale") {
-        const from = getStrongestStatKey(current.stats);
-        const to = getWeakestStatKey(current.stats);
-        const amount = Math.min(20, current.stats[from]);
+        const requested = options?.justiceRebalance;
+
+        if (
+          !requested ||
+          !isStatKey(requested.from) ||
+          !isStatKey(requested.to)
+        ) {
+          result = createArtifactActionResult(
+            key,
+            "activation",
+            false,
+            "Choose which stats Justice should rebalance before activating."
+          );
+          return current;
+        }
+
+        const from = requested.from;
+        const to = requested.to;
+        const amount = Math.max(
+          0,
+          Math.min(20, Math.floor(requested.amount), current.stats[from])
+        );
 
         if (from === to || amount <= 0) {
           result = createArtifactActionResult(
             key,
             "activation",
             false,
-            "Justice could not find two different stats to rebalance."
+            "Justice needs two different stats and at least 1 movable point."
           );
           return current;
         }
@@ -1839,7 +1971,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           details: `${meta.title} activated. ${meta.ability}`,
         }),
       };
-    });
+    }, { persistNow: true, persistContext: "artifact activation" });
 
     return result;
   }
