@@ -179,30 +179,133 @@ export type EnergyPattern =
 export type StressLevel = "Low" | "Moderate" | "High";
 
 export type ArtifactKey =
-  | "rest_day_pass"
-  | "focus_shard"
-  | "xp_rune"
-  | "null_sigil"
-  | "discipline_core"
-  | "victory_seal"
-  | "monarch_crown";
+  | "fool_last_trick"
+  | "magician_double_cast"
+  | "high_priestess_hidden_prayers"
+  | "empress_garden_order"
+  | "emperor_law"
+  | "hierophant_key_salvation"
+  | "lovers_unbreakable_pact"
+  | "chariot_advancement"
+  | "strength_lion_heart"
+  | "hermit_lantern"
+  | "wheel_fortune_gamble"
+  | "justice_balance_scale"
+  | "hanged_man_rope"
+  | "death_transformation"
+  | "temperance_golden_cup"
+  | "devil_contract"
+  | "tower_ruins"
+  | "star_blessing"
+  | "moon_secret_path"
+  | "sun_radiance"
+  | "judgement_shield"
+  | "world_completion";
+
+export type ArtifactRarity =
+  | "common"
+  | "rare"
+  | "epic"
+  | "legendary"
+  | "one_of_a_kind";
+
+export type ArtifactKind =
+  | "passive"
+  | "active"
+  | "consumable"
+  | "challenge"
+  | "unique";
+
+export type ArtifactAvailability =
+  | "purchasable"
+  | "achievement_only"
+  | "both"
+  | "purchase_only";
+
+export type ArtifactStatus =
+  | "locked"
+  | "available"
+  | "active"
+  | "used"
+  | "expired"
+  | "completed"
+  | "failed";
 
 export type Artifact = {
   key: ArtifactKey;
+  id?: ArtifactKey;
   title: string;
+  name?: string;
+  arcana: string;
   description: string;
+  symbol: string;
   quantity: number;
-  rarity: "common" | "rare" | "epic" | "legendary";
+  rarity: ArtifactRarity;
+  type: ArtifactKind;
+  availability: ArtifactAvailability;
   effectLabel: string;
+  ability: string;
   lore: string;
   unlockHint: string;
+  xpCost: number | null;
   unlocked: boolean;
+  owned: boolean;
   discoveredAt: string | null;
+  acquiredAt?: string | null;
+  lastUsedAt?: string | null;
+  source?: "starter" | "purchase" | "achievement" | "transformation";
+  status: ArtifactStatus;
   usable: boolean;
+  passive: boolean;
+  active: boolean;
+  consumable: boolean;
+  stackable: boolean;
+  stackableEffect: boolean;
+  purchaseOnly: boolean;
+  achievementOnly: boolean;
+  unique: boolean;
+  cooldownHours?: number | null;
+  activeUntil?: string | null;
+  animation: string;
+};
+
+export type ActiveArtifactEffectStatus =
+  | "unused"
+  | "active"
+  | "completed"
+  | "failed"
+  | "expired"
+  | "used"
+  | "cancelled";
+
+export type ActiveArtifactEffect = {
+  id: string;
+  artifactId: ArtifactKey;
+  effectType: string;
+  status: ActiveArtifactEffectStatus;
+  startsAt: string;
+  expiresAt: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ActiveEffects = {
   doubleDailyXpDate: string | null;
+  artifactEffects: ActiveArtifactEffect[];
+  dailyQuestOverrides: Record<string, "emperor_cancelled" | "hanged_man_paused">;
+  wheelSpins: Record<
+    string,
+    {
+      artifactId: ArtifactKey;
+      outcome: string;
+      xp: number;
+      statRewards: Partial<Stats>;
+      spunAt: string;
+    }
+  >;
+  oneTimeUse: Record<string, boolean>;
+  magicianDoubleCastDate: string | null;
 };
 
 export type InterestCategory =
@@ -450,11 +553,15 @@ export type UserRecord = {
   quests: Quest[];
   streak: number;
   lastCompletionDate: string | null;
+  lifetimeXp: number;
   totalXp: number;
+  spendableXp: number;
   stats: Stats;
   history: HistoryEntry[];
   workoutJournal: WorkoutJournalEntry[];
+  workoutProgram: WorkoutProgram | null;
   householdTasks: HouseholdTaskEntry[];
+  taskHistory: TaskHistoryEntry[];
   funSpecialActivities: SpecialQuest[];
   foodJournal: FoodJournalEntry[];
   dietFeedback: DietFeedback[];
@@ -466,6 +573,7 @@ export type UserRecord = {
   aiQuestIndex: number;
   artifacts: Artifact[];
   activeEffects: ActiveEffects;
+  artifactHistory?: ArtifactHistoryEntry[];
   lastResetDate: string;
   dailyHp: number | null;
   dailyHpDate: string | null;
@@ -492,11 +600,15 @@ export type AppState = {
   quests: Quest[];
   streak: number;
   lastCompletionDate: string | null;
+  lifetimeXp: number;
   totalXp: number;
+  spendableXp: number;
   stats: Stats;
   history: HistoryEntry[];
   workoutJournal: WorkoutJournalEntry[];
+  workoutProgram: WorkoutProgram | null;
   householdTasks: HouseholdTaskEntry[];
+  taskHistory: TaskHistoryEntry[];
   funSpecialActivities: SpecialQuest[];
   foodJournal: FoodJournalEntry[];
   dietFeedback: DietFeedback[];
@@ -509,6 +621,7 @@ export type AppState = {
   aiQuestIndex: number;
   artifacts: Artifact[];
   activeEffects: ActiveEffects;
+  artifactHistory: ArtifactHistoryEntry[];
   dailyHp: number | null;
   dailyHpDate: string | null;
 
@@ -535,7 +648,9 @@ export type AppState = {
   addFoodJournalEntry: (entry: Omit<FoodJournalEntry, "id">) => void;
   deleteFoodJournalEntry: (id: string) => void;
   saveDietFeedback: (feedback: DietFeedback) => void;
-  activateArtifact: (key: ArtifactKey) => void;
+  activateArtifact: (key: ArtifactKey) => ArtifactActionResult;
+  purchaseArtifact: (key: ArtifactKey) => ArtifactActionResult;
+  updateWorkoutProgram: (program: WorkoutProgram | null) => void;
 
   createUser: (name: string) => void;
   switchUser: (userId: string) => void;
@@ -567,6 +682,53 @@ export type HouseholdTaskEntry = {
   awarded: boolean;
   createdAt: string;
   completedAt: string | null;
+};
+
+export type TaskHistoryEntry = {
+  id: string;
+  taskId: string;
+  title: string;
+  kind: HouseholdTaskKind;
+  xp: number;
+  statRewards: Partial<Stats>;
+  completedAt: string;
+  source: HouseholdTaskKind;
+  details: string;
+};
+
+export type ArtifactHistoryEntry = {
+  id: string;
+  userId: string;
+  artifactId: ArtifactKey;
+  artifactName: string;
+  eventType:
+    | "purchased"
+    | "earned"
+    | "activated"
+    | "effect_applied"
+    | "expired"
+    | "completed"
+    | "failed"
+    | "transformed"
+    | "consumed"
+    | "streak_protected"
+    | "streak_restored"
+    | "xp_boosted"
+    | "stat_rebalanced";
+  date: string;
+  xpChange?: number;
+  statChange?: Partial<Stats>;
+  streakEffect?: string;
+  taskId?: string;
+  details: string;
+};
+
+export type ArtifactActionResult = {
+  ok: boolean;
+  artifactId: ArtifactKey;
+  eventType: "purchase" | "activation";
+  message: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type FoodJournalEntry = {

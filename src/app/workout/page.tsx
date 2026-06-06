@@ -11,6 +11,72 @@ import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
 import ActionButton from "../components/ActionButton";
+import CollapsibleSection from "../components/CollapsibleSection";
+import type {
+  WorkoutJournalEntry,
+  WorkoutProgramExercise,
+  WorkoutProgramPhase,
+  WorkoutProgramSession,
+} from "../types";
+
+function ExerciseQuickLog({
+  phase,
+  session,
+  exercise,
+  date,
+  previousEntry,
+  onAdd,
+}: {
+  phase: WorkoutProgramPhase;
+  session: WorkoutProgramSession;
+  exercise: WorkoutProgramExercise;
+  date: string;
+  previousEntry?: WorkoutJournalEntry;
+  onAdd: (entry: Omit<WorkoutJournalEntry, "id">) => void;
+}) {
+  const [weightKg, setWeightKg] = useState("");
+  const [notes, setNotes] = useState("");
+
+  function handleAdd() {
+    onAdd({
+      date,
+      sessionName: `${session.day} session`,
+      exerciseName: exercise.name,
+      sets: exercise.sets,
+      reps: exercise.reps,
+      weightKg: weightKg.trim() ? Number(weightKg) : null,
+      notes:
+        notes.trim() ||
+        `${phase.name} / ${phase.weeks}. Focus: ${session.focus}.`,
+    });
+    setWeightKg("");
+    setNotes("");
+  }
+
+  return (
+    <div className="mt-3 grid gap-2 md:grid-cols-[160px_1fr_auto]">
+      <input
+        value={weightKg}
+        onChange={(event) => setWeightKg(event.target.value)}
+        className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+        placeholder={
+          previousEntry?.weightKg !== null && previousEntry?.weightKg !== undefined
+            ? `Previous: ${previousEntry.weightKg} kg`
+            : "Weight kg"
+        }
+      />
+      <input
+        value={notes}
+        onChange={(event) => setNotes(event.target.value)}
+        className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+        placeholder="Optional notes"
+      />
+      <ActionButton onClick={handleAdd} variant="green">
+        Add to journal
+      </ActionButton>
+    </div>
+  );
+}
 
 export default function WorkoutPage() {
   const {
@@ -20,12 +86,14 @@ export default function WorkoutPage() {
     totalXp,
     aiAnalysis,
     aiWeeklyPlan,
+    workoutProgram,
     workoutJournal,
     addWorkoutJournalEntry,
     regenerateSpecialQuest,
     updateProfile,
     updateAiAnalysis,
     updateAiWeeklyPlan,
+    updateWorkoutProgram,
   } = useApp();
 
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -72,7 +140,15 @@ export default function WorkoutPage() {
   const personalization = aiAnalysis
     ? getPersonalization(aiAnalysis, profile)
     : null;
-  const program = buildWorkoutProgram(profile, totalXp, aiAnalysis);
+  const program = workoutProgram ?? buildWorkoutProgram(profile, totalXp, aiAnalysis);
+  const previousEntryByExercise = new Map<string, WorkoutJournalEntry>();
+
+  for (const entry of workoutJournal) {
+    const key = entry.exerciseName.trim().toLowerCase();
+    if (key && !previousEntryByExercise.has(key)) {
+      previousEntryByExercise.set(key, entry);
+    }
+  }
 
   function handleSubmitJournal() {
     if (!exerciseName.trim()) return;
@@ -135,6 +211,7 @@ export default function WorkoutPage() {
         profileUpdates: Partial<UserProfile>;
         workoutDirection: string;
         weeklyPlan: AiWeeklyPlan | null;
+        workoutProgram: typeof program;
       };
 
       const nextProfile: UserProfile = {
@@ -154,6 +231,10 @@ export default function WorkoutPage() {
 
       if (data.weeklyPlan) {
         updateAiWeeklyPlan(data.weeklyPlan);
+      }
+
+      if (data.workoutProgram) {
+        updateWorkoutProgram(data.workoutProgram);
       }
 
       setAdjustmentMessage(data.response);
@@ -276,22 +357,29 @@ export default function WorkoutPage() {
             </p>
           </div>
 
-          {program.phases.map((phase) => (
-            <div
-              key={phase.name}
-              id={
-                phase.name === program.currentPhaseLabel
-                  ? "workout-exercises-active"
-                  : undefined
-              }
-              className="rounded-xl border border-zinc-700 bg-zinc-900 p-4"
-            >
-              <p className="text-lg font-semibold text-white">{phase.name}</p>
-              <p className="text-sm text-purple-300">{phase.weeks}</p>
-              <p className="mt-2 text-zinc-300">{phase.objective}</p>
-              <p className="mt-1 text-sm text-zinc-400">{phase.progression}</p>
+          {program.phases.map((phase) => {
+            const isCurrentPhase = phase.name === program.currentPhaseLabel;
 
-              <div className="mt-4 space-y-4">
+            return (
+              <CollapsibleSection
+                key={phase.name}
+                title={phase.name}
+                defaultOpen={isCurrentPhase}
+                className="rounded-xl border border-zinc-700 bg-zinc-900 p-4"
+                headerClassName="text-lg font-semibold text-white"
+                rightSlot={
+                  <span className="rounded-full border border-purple-500/40 bg-purple-500/10 px-2 py-1 text-xs text-purple-200">
+                    {isCurrentPhase ? "Current" : phase.weeks}
+                  </span>
+                }
+              >
+                <div id={isCurrentPhase ? "workout-exercises-active" : undefined}>
+                  <p className="text-sm text-purple-300">{phase.weeks}</p>
+                  <p className="mt-2 text-zinc-300">{phase.objective}</p>
+                  <p className="mt-1 text-sm text-zinc-400">{phase.progression}</p>
+                </div>
+
+                <div className="mt-4 space-y-4">
                 {phase.sessions.map((session) => (
                   <div
                     key={`${phase.name}-${session.day}-${session.focus}`}
@@ -319,6 +407,16 @@ export default function WorkoutPage() {
                             {item.sets} sets x {item.reps} · Rest {item.restSeconds}s
                           </p>
                           <p className="mt-1 text-sm text-zinc-400">{item.notes}</p>
+                          <ExerciseQuickLog
+                            phase={phase}
+                            session={session}
+                            exercise={item}
+                            date={date}
+                            previousEntry={previousEntryByExercise.get(
+                              item.name.trim().toLowerCase()
+                            )}
+                            onAdd={addWorkoutJournalEntry}
+                          />
                         </div>
                       ))}
                     </div>
@@ -332,9 +430,10 @@ export default function WorkoutPage() {
                     </p>
                   </div>
                 ))}
-              </div>
-            </div>
-          ))}
+                </div>
+              </CollapsibleSection>
+            );
+          })}
         </div>
       </PanelCard>
 
@@ -418,6 +517,13 @@ export default function WorkoutPage() {
             Save Journal Entry
           </ActionButton>
 
+          <CollapsibleSection
+            title="Workout Journal History"
+            defaultOpen={false}
+            className="rounded-lg border border-zinc-700 bg-zinc-900 p-4"
+            headerClassName="font-medium text-white"
+            rightSlot={<span>{workoutJournal.length} entries</span>}
+          >
           {workoutJournal.length > 0 ? (
             <div className="space-y-3">
               {workoutJournal.map((entry) => (
@@ -446,6 +552,7 @@ export default function WorkoutPage() {
               </p>
             </div>
           )}
+          </CollapsibleSection>
         </div>
       </PanelCard>
 

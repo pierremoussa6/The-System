@@ -4,11 +4,13 @@ import type {
   AiWeeklyPlan,
   Stats,
   UserProfile,
+  WorkoutProgram,
   WorkoutPreference,
 } from "../../../types";
 import { getOpenAIClient } from "../../../lib/openai";
 import { parseWorkoutDaysInput } from "../../../schedule";
 import { sanitizeWeeklyPlanForProfile } from "../../../weekly-plan-system";
+import { sanitizeWorkoutProgramForProfile } from "../../../workout-system";
 
 const workoutPreferences = [
   "Gym",
@@ -61,6 +63,96 @@ const weeklyPlanSchema = {
   ],
 } as const;
 
+const exerciseSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    name: { type: "string" },
+    sets: { type: "number" },
+    reps: { type: "string" },
+    restSeconds: { type: "number" },
+    notes: { type: "string" },
+  },
+  required: ["name", "sets", "reps", "restSeconds", "notes"],
+} as const;
+
+const workoutProgramSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    headline: { type: "string" },
+    motivationAnchor: { type: "string" },
+    preferredDays: {
+      type: "array",
+      minItems: 1,
+      maxItems: 5,
+      items: { type: "string" },
+    },
+    frequency: { type: "number" },
+    sessionLengthMinutes: { type: "number" },
+    progressionCadence: { type: "string" },
+    currentPhaseLabel: { type: "string" },
+    phases: {
+      type: "array",
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          weeks: { type: "string" },
+          objective: { type: "string" },
+          progression: { type: "string" },
+          sessions: {
+            type: "array",
+            minItems: 1,
+            maxItems: 5,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                day: { type: "string" },
+                focus: { type: "string" },
+                durationMinutes: { type: "number" },
+                warmup: { type: "string" },
+                exercises: {
+                  type: "array",
+                  minItems: 2,
+                  maxItems: 8,
+                  items: exerciseSchema,
+                },
+                finisher: { type: "string" },
+                lowEnergyOption: { type: "string" },
+              },
+              required: [
+                "day",
+                "focus",
+                "durationMinutes",
+                "warmup",
+                "exercises",
+                "finisher",
+                "lowEnergyOption",
+              ],
+            },
+          },
+        },
+        required: ["name", "weeks", "objective", "progression", "sessions"],
+      },
+    },
+  },
+  required: [
+    "headline",
+    "motivationAnchor",
+    "preferredDays",
+    "frequency",
+    "sessionLengthMinutes",
+    "progressionCadence",
+    "currentPhaseLabel",
+    "phases",
+  ],
+} as const;
+
 const adjustmentSchema = {
   type: "object",
   additionalProperties: false,
@@ -96,8 +188,15 @@ const adjustmentSchema = {
       ],
     },
     weeklyPlan: weeklyPlanSchema,
+    workoutProgram: workoutProgramSchema,
   },
-  required: ["response", "workoutDirection", "profileUpdates", "weeklyPlan"],
+  required: [
+    "response",
+    "workoutDirection",
+    "profileUpdates",
+    "weeklyPlan",
+    "workoutProgram",
+  ],
 } as const;
 
 type RawAdjustment = {
@@ -113,6 +212,7 @@ type RawAdjustment = {
     wantsWorkoutPlan: boolean | null;
   };
   weeklyPlan: AiWeeklyPlan;
+  workoutProgram: WorkoutProgram;
 };
 
 function boundedString(value: unknown, fallback: string, maxLength = 420) {
@@ -125,7 +225,12 @@ function sanitizeMinutes(value: number | null, fallback: number, max: number) {
   return Math.max(5, Math.min(max, Math.round(value)));
 }
 
-function sanitizeAdjustment(raw: RawAdjustment, profile: UserProfile) {
+function sanitizeAdjustment(
+  raw: RawAdjustment,
+  profile: UserProfile,
+  totalXp: number,
+  aiAnalysis: AiSystemAnalysis | null
+) {
   const profileUpdates: Partial<UserProfile> = {};
 
   if (raw.profileUpdates.preferredWorkoutDays?.trim()) {
@@ -181,6 +286,15 @@ function sanitizeAdjustment(raw: RawAdjustment, profile: UserProfile) {
       ...profile,
       ...profileUpdates,
     }),
+    workoutProgram: sanitizeWorkoutProgramForProfile(
+      raw.workoutProgram,
+      {
+        ...profile,
+        ...profileUpdates,
+      },
+      totalXp,
+      aiAnalysis
+    ),
   };
 }
 
@@ -223,6 +337,10 @@ Rules:
 - If the user reports pain, injury, or inability to do an exercise, replace that exercise category with safer alternatives and mention the limitation in rpgIdentityNotes.
 - Respect preferred workout days as the source of truth.
 - Weekly workout missions must land on selected workout days unless the request explicitly moves one.
+- Return an updated workoutProgram object that is the new canonical 12-week plan.
+- The workoutProgram phases must reflect the requested change directly. Do not leave old exercises in Phase 1, Phase 2, or Phase 3 unless intentionally retained.
+- If the user asks to reduce leg focus, visibly reduce leg-dominant sessions and exercises in all phases and replace them with upper body, core, recovery, mobility, or safe low-leg alternatives.
+- The weekly plan, workoutProgram, and workoutDirection must describe the same plan.
 - Avoid exercise suggestions that conflict with stated injuries or limitations.
 - Keep nutrition and recovery fields coherent with the training adjustment.
 - Use low-energy alternatives when the request indicates fatigue.
@@ -275,7 +393,14 @@ export async function POST(request: Request) {
     });
 
     const raw = JSON.parse(response.output_text) as RawAdjustment;
-    return NextResponse.json(sanitizeAdjustment(raw, profile));
+    return NextResponse.json(
+      sanitizeAdjustment(
+        raw,
+        profile,
+        Number(body?.totalXp ?? 0),
+        (body?.aiAnalysis as AiSystemAnalysis | null) ?? null
+      )
+    );
   } catch (error) {
     console.error("adjust-workout-plan error", error);
 

@@ -7,7 +7,11 @@ import type {
   WorkoutProgramPhase,
   WorkoutProgramSession,
 } from "./types";
-import { parsePreferredWorkoutDays } from "./schedule";
+import {
+  isWorkoutAllowedOnWeekday,
+  parsePreferredWorkoutDays,
+  type Weekday,
+} from "./schedule";
 
 function exercise(
   name: string,
@@ -35,7 +39,67 @@ function pickSessionLength(profile: UserProfile) {
   return Math.max(25, Math.min(75, Math.round(budget)));
 }
 
-function buildGymSessions(days: string[], durationMinutes: number) {
+function shouldReduceLegFocus(
+  profile: UserProfile,
+  aiAnalysis: AiSystemAnalysis | null
+) {
+  const text = [
+    aiAnalysis?.workoutDirection,
+    profile.rpgIdentityNotes,
+    profile.goal,
+    profile.motivationWhy,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    text.includes("reduce leg") ||
+    text.includes("less leg") ||
+    text.includes("avoid leg") ||
+    (text.includes("lower body") && text.includes("reduce")) ||
+    (text.includes("leg focus") && text.includes("low"))
+  );
+}
+
+function buildGymSessions(
+  days: string[],
+  durationMinutes: number,
+  options: { reduceLegFocus?: boolean } = {}
+) {
+  const lowerBodySession: WorkoutProgramSession = options.reduceLegFocus
+    ? {
+        day: days[1] ?? "Wednesday",
+        focus: "Upper Pull, Core, and Recovery",
+        durationMinutes,
+        warmup:
+          "5-8 minutes easy cardio, shoulder mobility, band pull-aparts, and light core activation.",
+        exercises: [
+          exercise("Lat Pulldown or Assisted Pull-Up", 4, "8-12", 75, "Control the full range."),
+          exercise("Chest-Supported Row", 4, "8-10", 90, "Pause briefly at the top."),
+          exercise("Face Pull", 3, "12-15", 60, "Keep shoulders relaxed."),
+          exercise("Cable Curl or Dumbbell Curl", 3, "10-12", 60, "Smooth tempo."),
+          exercise("Pallof Press or Dead Bug", 3, "10 each side", 45, "Brace hard without leg fatigue."),
+        ],
+        finisher: "5 minutes easy bike or relaxed walk only if legs feel fresh.",
+        lowEnergyOption: "Do pulldown, row, face pull, and dead bug only.",
+      }
+    : {
+        day: days[1] ?? "Wednesday",
+        focus: "Lower Body Strength",
+        durationMinutes,
+        warmup: "5-8 minutes bike, hip mobility, bodyweight squats, 2 ramp-up sets.",
+        exercises: [
+          exercise("Back Squat or Leg Press", 4, "5-8", 120, "Keep technique strict."),
+          exercise("Romanian Deadlift", 4, "6-10", 120, "Feel the hamstrings; no jerking."),
+          exercise("Walking Lunge", 3, "10 each leg", 75, "Short rest and stable steps."),
+          exercise("Leg Curl", 3, "10-12", 60, "Smooth tempo."),
+          exercise("Standing Calf Raise", 3, "12-15", 45, "Pause at the top."),
+        ],
+        finisher: "6-8 minutes easy bike or treadmill walk.",
+        lowEnergyOption: "Do squat/press, RDL, and one lunge variation only.",
+      };
+
   const template: WorkoutProgramSession[] = [
     {
       day: days[0] ?? "Monday",
@@ -52,31 +116,17 @@ function buildGymSessions(days: string[], durationMinutes: number) {
       finisher: "5 minutes incline walk or bike cooldown.",
       lowEnergyOption: "Do the first 3 lifts only for 2 work sets each.",
     },
-    {
-      day: days[1] ?? "Wednesday",
-      focus: "Lower Body Strength",
-      durationMinutes,
-      warmup: "5-8 minutes bike, hip mobility, bodyweight squats, 2 ramp-up sets.",
-      exercises: [
-        exercise("Back Squat or Leg Press", 4, "5-8", 120, "Keep technique strict."),
-        exercise("Romanian Deadlift", 4, "6-10", 120, "Feel the hamstrings; no jerking."),
-        exercise("Walking Lunge", 3, "10 each leg", 75, "Short rest and stable steps."),
-        exercise("Leg Curl", 3, "10-12", 60, "Smooth tempo."),
-        exercise("Standing Calf Raise", 3, "12-15", 45, "Pause at the top."),
-      ],
-      finisher: "6-8 minutes easy bike or treadmill walk.",
-      lowEnergyOption: "Do squat/press, RDL, and one lunge variation only.",
-    },
+    lowerBodySession,
     {
       day: days[2] ?? "Friday",
       focus: "Full Body Progression",
       durationMinutes,
       warmup: "5 minutes cardio, mobility, and ramp-up sets for the first lift.",
       exercises: [
-        exercise("Trap Bar Deadlift or Machine Hinge", 4, "4-6", 120, "Explosive but controlled reps."),
+        exercise(options.reduceLegFocus ? "Cable Row Strength Set" : "Trap Bar Deadlift or Machine Hinge", 4, options.reduceLegFocus ? "8-10" : "4-6", 120, options.reduceLegFocus ? "Upper-back focus; no heavy leg drive." : "Explosive but controlled reps."),
         exercise("Incline Dumbbell Press", 3, "8-10", 90, "Stop 1 rep before breakdown."),
         exercise("Single-Arm Cable or Dumbbell Row", 3, "10-12", 75, "Stay stable through the torso."),
-        exercise("Split Squat", 3, "8 each leg", 75, "Full depth with control."),
+        exercise(options.reduceLegFocus ? "Cable Lateral Raise" : "Split Squat", 3, options.reduceLegFocus ? "12-15" : "8 each leg", 75, options.reduceLegFocus ? "Controlled shoulder volume." : "Full depth with control."),
         exercise("Plank or Ab Wheel", 3, "30-45 sec", 45, "Brace hard."),
       ],
       finisher: "Optional 10-minute incline walk if energy is good.",
@@ -242,9 +292,16 @@ function buildMixedSessions(
   ].slice(0, pickFrequency(profile, days));
 }
 
-function buildSessions(profile: UserProfile, days: string[], durationMinutes: number) {
+function buildSessions(
+  profile: UserProfile,
+  days: string[],
+  durationMinutes: number,
+  aiAnalysis: AiSystemAnalysis | null
+) {
+  const reduceLegFocus = shouldReduceLegFocus(profile, aiAnalysis);
+
   if (profile.workoutPreference === "Gym") {
-    return buildGymSessions(days, durationMinutes);
+    return buildGymSessions(days, durationMinutes, { reduceLegFocus });
   }
 
   if (profile.workoutPreference === "Home") {
@@ -300,6 +357,139 @@ function buildPhases(
   ];
 }
 
+function boundedText(value: unknown, fallback: string, maxLength = 420) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return (text || fallback).slice(0, maxLength).trim();
+}
+
+function sanitizeExercise(
+  exerciseInput: WorkoutProgramExercise | undefined,
+  fallback: WorkoutProgramExercise
+): WorkoutProgramExercise {
+  return {
+    name: boundedText(exerciseInput?.name, fallback.name, 120),
+    sets:
+      typeof exerciseInput?.sets === "number" && Number.isFinite(exerciseInput.sets)
+        ? Math.max(1, Math.min(8, Math.round(exerciseInput.sets)))
+        : fallback.sets,
+    reps: boundedText(exerciseInput?.reps, fallback.reps, 80),
+    restSeconds:
+      typeof exerciseInput?.restSeconds === "number" &&
+      Number.isFinite(exerciseInput.restSeconds)
+        ? Math.max(0, Math.min(240, Math.round(exerciseInput.restSeconds)))
+        : fallback.restSeconds,
+    notes: boundedText(exerciseInput?.notes, fallback.notes, 180),
+  };
+}
+
+function sanitizeSession(
+  sessionInput: WorkoutProgramSession | undefined,
+  fallback: WorkoutProgramSession,
+  profile: UserProfile
+): WorkoutProgramSession {
+  const preferredDays = parsePreferredWorkoutDays(profile.preferredWorkoutDays);
+  const inputDay = boundedText(sessionInput?.day, fallback.day, 24) as Weekday;
+  const day = isWorkoutAllowedOnWeekday(profile, inputDay)
+    ? inputDay
+    : fallback.day;
+  const fallbackExercises = fallback.exercises.length
+    ? fallback.exercises
+    : [exercise("Workout Session", 3, "8-10", 60, "Use a safe variation.")];
+  const inputExercises = Array.isArray(sessionInput?.exercises)
+    ? sessionInput?.exercises ?? []
+    : [];
+
+  return {
+    day: preferredDays.includes(day as Weekday) ? day : fallback.day,
+    focus: boundedText(sessionInput?.focus, fallback.focus, 120),
+    durationMinutes:
+      typeof sessionInput?.durationMinutes === "number" &&
+      Number.isFinite(sessionInput.durationMinutes)
+        ? Math.max(10, Math.min(120, Math.round(sessionInput.durationMinutes)))
+        : fallback.durationMinutes,
+    warmup: boundedText(sessionInput?.warmup, fallback.warmup, 220),
+    exercises: fallbackExercises
+      .map((fallbackExercise, index) =>
+        sanitizeExercise(inputExercises[index], fallbackExercise)
+      )
+      .slice(0, 8),
+    finisher:
+      typeof sessionInput?.finisher === "string"
+        ? boundedText(sessionInput.finisher, "", 180)
+        : fallback.finisher,
+    lowEnergyOption: boundedText(
+      sessionInput?.lowEnergyOption,
+      fallback.lowEnergyOption,
+      220
+    ),
+  };
+}
+
+export function sanitizeWorkoutProgramForProfile(
+  program: WorkoutProgram | null | undefined,
+  profile: UserProfile,
+  totalXp: number,
+  aiAnalysis: AiSystemAnalysis | null
+): WorkoutProgram {
+  const fallback = buildWorkoutProgram(profile, totalXp, aiAnalysis);
+
+  if (!program || typeof program !== "object") {
+    return fallback;
+  }
+
+  const preferredDays = parsePreferredWorkoutDays(profile.preferredWorkoutDays);
+  const fallbackPhases = fallback.phases;
+  const inputPhases = Array.isArray(program.phases) ? program.phases : [];
+  const phases = fallbackPhases.map((fallbackPhase, phaseIndex) => {
+    const inputPhase = inputPhases[phaseIndex];
+    const inputSessions = Array.isArray(inputPhase?.sessions)
+      ? inputPhase.sessions
+      : [];
+
+    return {
+      name: boundedText(inputPhase?.name, fallbackPhase.name, 100),
+      weeks: boundedText(inputPhase?.weeks, fallbackPhase.weeks, 60),
+      objective: boundedText(inputPhase?.objective, fallbackPhase.objective, 260),
+      progression: boundedText(
+        inputPhase?.progression,
+        fallbackPhase.progression,
+        260
+      ),
+      sessions: fallbackPhase.sessions.map((fallbackSession, sessionIndex) =>
+        sanitizeSession(inputSessions[sessionIndex], fallbackSession, profile)
+      ),
+    };
+  });
+
+  return {
+    headline: boundedText(program.headline, fallback.headline, 260),
+    motivationAnchor: boundedText(
+      program.motivationAnchor,
+      fallback.motivationAnchor,
+      260
+    ),
+    preferredDays,
+    frequency:
+      typeof program.frequency === "number" && Number.isFinite(program.frequency)
+        ? Math.max(1, Math.min(5, Math.round(program.frequency)))
+        : fallback.frequency,
+    sessionLengthMinutes:
+      typeof program.sessionLengthMinutes === "number" &&
+      Number.isFinite(program.sessionLengthMinutes)
+        ? Math.max(10, Math.min(120, Math.round(program.sessionLengthMinutes)))
+        : fallback.sessionLengthMinutes,
+    progressionCadence: boundedText(
+      program.progressionCadence,
+      fallback.progressionCadence,
+      260
+    ),
+    currentPhaseLabel: phases.some((phase) => phase.name === program.currentPhaseLabel)
+      ? program.currentPhaseLabel
+      : fallback.currentPhaseLabel,
+    phases,
+  };
+}
+
 export function buildWorkoutProgram(
   profile: UserProfile,
   totalXp: number,
@@ -309,7 +499,7 @@ export function buildWorkoutProgram(
   const frequency = pickFrequency(profile, preferredDays);
   const sessionLengthMinutes = pickSessionLength(profile);
   const days = preferredDays.slice(0, frequency);
-  const sessions = buildSessions(profile, days, sessionLengthMinutes);
+  const sessions = buildSessions(profile, days, sessionLengthMinutes, aiAnalysis);
   const phases = buildPhases(sessions, profile);
   const level = calculateLevel(totalXp).level;
   const currentPhaseIndex = Math.min(

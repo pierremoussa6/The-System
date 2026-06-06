@@ -24,15 +24,29 @@ import type {
   UserProfile,
   UserRecord,
   WorkoutJournalEntry,
+  WorkoutProgram,
 } from "./types";
-import { createStarterArtifacts, normalizeArtifacts } from "./artifacts";
+import {
+  createDefaultActiveEffects,
+  createStarterArtifacts,
+  getDailyQuestOverride,
+  isArtifactEffectActive,
+  normalizeActiveEffects,
+  normalizeArtifacts,
+} from "./artifacts";
 import {
   getDayNumberFromDateString,
+  getWeekdayName,
   isWorkoutDay,
   isQuestAllowedForProfileDate,
   shouldAssignSpecialQuest,
 } from "./schedule";
-import { normalizeHouseholdTasks } from "./task-system";
+import { normalizeHouseholdTasks, normalizeTaskHistory } from "./task-system";
+import {
+  appendLog as appendSystemLog,
+  getTimestampString as getSystemTimestampString,
+  getTodayString as getSystemTodayString,
+} from "./system-log";
 export { addStatRewards } from "./reward-system";
 
 export const defaultStats: Stats = {
@@ -1325,11 +1339,11 @@ export function appendSpecialQuestMemory(
 }
 
 export function getTodayString() {
-  return new Date().toISOString().split("T")[0];
+  return getSystemTodayString();
 }
 
 export function getTimestampString() {
-  return new Date().toLocaleString();
+  return getSystemTimestampString();
 }
 
 export function getYesterdayString() {
@@ -1393,8 +1407,33 @@ export function scalePenaltyText(
   return `${basePenalty} Standard mode: finish the corrective action before entertainment.`;
 }
 
-function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString()): Quest {
+function getPlannedWorkoutSession(
+  program: WorkoutProgram | null | undefined,
+  dateString: string
+) {
+  if (!program) return null;
+
+  const weekday = getWeekdayName(dateString);
+  const currentPhase =
+    program.phases.find((phase) => phase.name === program.currentPhaseLabel) ??
+    program.phases[0];
+
+  return (
+    currentPhase?.sessions.find((session) => session.day === weekday) ??
+    currentPhase?.sessions[0] ??
+    null
+  );
+}
+
+function getDailyTrainingQuest(
+  profile: UserProfile,
+  dateString = getTodayString(),
+  workoutProgram?: WorkoutProgram | null
+): Quest {
   const workoutDay = isWorkoutDay(profile, dateString);
+  const plannedSession = workoutDay
+    ? getPlannedWorkoutSession(workoutProgram, dateString)
+    : null;
   const prefersCardio =
     profile.workoutPreference === "Running" ||
     profile.workoutPreference === "Walking" ||
@@ -1421,9 +1460,16 @@ function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString
   if (prefersGym) {
     return {
       id: 1,
-      title: "Workout / Self-Improvement Session",
+      title: plannedSession
+        ? `${plannedSession.day} Training Mission`
+        : "Workout / Self-Improvement Session",
       description:
-        `Complete a gym session or a study/self-improvement session. If training is not safe today, use the smallest recovery-compatible version.${preferredDaysNote}`,
+        plannedSession
+          ? `Complete ${plannedSession.focus}: ${plannedSession.exercises
+              .map((exercise) => `${exercise.name} ${exercise.sets}x${exercise.reps}`)
+              .slice(0, 4)
+              .join(", ")}. Low-energy option: ${plannedSession.lowEnergyOption}.${preferredDaysNote}`
+          : `Complete a gym session or a study/self-improvement session. If training is not safe today, use the smallest recovery-compatible version.${preferredDaysNote}`,
       xp: scaleXp(50, profile.difficulty),
       completed: false,
       awardedToday: false,
@@ -1449,8 +1495,15 @@ function getDailyTrainingQuest(profile: UserProfile, dateString = getTodayString
 
   return {
     id: 1,
-    title: "Workout or Self-Improvement Session",
-    description: `Complete the movement plan that fits today: gym, home training, cardio, mobility, or a study/self-improvement session.${preferredDaysNote}`,
+    title: plannedSession
+      ? `${plannedSession.day} Training Mission`
+      : "Workout or Self-Improvement Session",
+    description: plannedSession
+      ? `Complete ${plannedSession.focus}: ${plannedSession.exercises
+          .map((exercise) => `${exercise.name} ${exercise.sets}x${exercise.reps}`)
+          .slice(0, 4)
+          .join(", ")}. Low-energy option: ${plannedSession.lowEnergyOption}.${preferredDaysNote}`
+      : `Complete the movement plan that fits today: gym, home training, cardio, mobility, or a study/self-improvement session.${preferredDaysNote}`,
     xp: scaleXp(prefersGym ? 25 : 35, profile.difficulty),
     completed: false,
     awardedToday: false,
@@ -1483,10 +1536,11 @@ export function normalizePartialStats(
 
 export function createDailyQuests(
   profile: UserProfile,
-  dateString = getTodayString()
+  dateString = getTodayString(),
+  workoutProgram?: WorkoutProgram | null
 ): Quest[] {
   const base: Quest[] = [
-    getDailyTrainingQuest(profile, dateString),
+    getDailyTrainingQuest(profile, dateString, workoutProgram),
     {
       id: 2,
       title: "Nutrition Protocol",
@@ -1960,13 +2014,7 @@ export function appendLog(
   currentLog: LogEntry[],
   entry: Omit<LogEntry, "id" | "date">
 ): LogEntry[] {
-  const newEntry: LogEntry = {
-    ...entry,
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    date: getTimestampString(),
-  };
-
-  return [newEntry, ...currentLog].slice(0, 100);
+  return appendSystemLog(currentLog, entry);
 }
 
 export function createNoSpecialQuest(
@@ -2206,9 +2254,7 @@ export function createNewUserRecord(name: string): UserRecord {
     specialQuestMemory
   );
 
-  const activeEffects: ActiveEffects = {
-    doubleDailyXpDate: null,
-  };
+  const activeEffects: ActiveEffects = createDefaultActiveEffects();
 
   return {
     id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -2216,11 +2262,15 @@ export function createNewUserRecord(name: string): UserRecord {
     quests: createDailyQuests(profile),
     streak: 0,
     lastCompletionDate: null,
+    lifetimeXp: 0,
     totalXp: 0,
+    spendableXp: 0,
     stats: defaultStats,
     history: [],
     workoutJournal: [],
+    workoutProgram: null,
     householdTasks: [],
+    taskHistory: [],
     funSpecialActivities: [],
     foodJournal: [],
     dietFeedback: [],
@@ -2299,14 +2349,13 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
         : defaultProfile.customSpecialQuestIntervalDays,
   };
 
-  const safeEffects: ActiveEffects = {
-    doubleDailyXpDate: user.activeEffects?.doubleDailyXpDate ?? null,
-  };
+  const safeEffects = normalizeActiveEffects(user.activeEffects);
   const safeSpecialQuestMemory = normalizeSpecialQuestMemory(
     user.specialQuestMemory
   );
   const safeWorkoutJournal = normalizeWorkoutJournalEntries(user.workoutJournal);
   const safeHouseholdTasks = normalizeHouseholdTasks(user.householdTasks);
+  const safeTaskHistory = normalizeTaskHistory(user.taskHistory);
   const safeFunSpecialActivities = normalizeFunSpecialActivities(
     user.funSpecialActivities
   );
@@ -2334,9 +2383,20 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     return {
       ...user,
       profile: safeProfile,
+      lifetimeXp:
+        typeof user.lifetimeXp === "number" && Number.isFinite(user.lifetimeXp)
+          ? Math.max(0, Math.round(user.lifetimeXp))
+          : Math.max(0, Math.round(user.totalXp ?? 0)),
+      totalXp: Math.max(0, Math.round(user.totalXp ?? user.lifetimeXp ?? 0)),
+      spendableXp:
+        typeof user.spendableXp === "number" && Number.isFinite(user.spendableXp)
+          ? Math.max(0, Math.round(user.spendableXp))
+          : Math.max(0, Math.round(user.totalXp ?? user.lifetimeXp ?? 0)),
       stats: safeStats,
       workoutJournal: safeWorkoutJournal,
+      workoutProgram: user.workoutProgram ?? null,
       householdTasks: safeHouseholdTasks,
+      taskHistory: safeTaskHistory,
       funSpecialActivities: safeFunSpecialActivities,
       foodJournal: safeFoodJournal,
       dietFeedback: safeDietFeedback,
@@ -2347,6 +2407,9 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       aiQuestIndex: user.aiQuestIndex ?? 0,
       artifacts: normalizeArtifacts(user.artifacts),
       activeEffects: safeEffects,
+      artifactHistory: Array.isArray(user.artifactHistory)
+        ? user.artifactHistory
+        : [],
       specialQuestMemory: safeSpecialQuestMemory,
     };
   }
@@ -2356,20 +2419,62 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
   let nextStats = safeStats;
   let nextHistory = user.history;
   let nextStreak = user.streak;
+  let nextLastCompletionDate = user.lastCompletionDate;
+  let streakProtectedByArtifact = false;
 
   const missedDailyPenalty = getMissedDailyPenalty(user);
   const hasMissedDailyQuests = user.quests.some((quest) => !quest.completed);
+  const missedDate = user.lastResetDate || getYesterdayString();
+  const dailyOverride = getDailyQuestOverride(safeEffects, missedDate);
+  const judgementProtected = isArtifactEffectActive(
+    safeEffects,
+    "judgement_shield",
+    new Date(`${missedDate}T12:00:00`)
+  );
 
   if (hasMissedDailyQuests) {
-    nextStats = subtractStatPenalty(nextStats, missedDailyPenalty);
-    nextHistory = appendHistoryEntry(nextHistory, nextStats);
-    log = appendLog(log, {
-      type: "system_notice",
-      title: "Consistency Penalty Applied",
-      details: `Daily protocol was not completed. Attributes reduced: ${describePenaltyStats(
-        missedDailyPenalty
-      )}.`,
-    });
+    if (dailyOverride === "emperor_cancelled") {
+      streakProtectedByArtifact = true;
+      nextLastCompletionDate = missedDate;
+      log = appendLog(log, {
+        type: "artifact",
+        title: "Quests Cancelled by The Emperor",
+        details:
+          "Quests cancelled by order of the Emperor. No daily rewards were granted and the streak was protected.",
+      });
+    } else if (judgementProtected) {
+      streakProtectedByArtifact = true;
+      nextLastCompletionDate = missedDate;
+      log = appendLog(log, {
+        type: "artifact",
+        title: "Judgement's Shield Protected the Streak",
+        details:
+          "Judgement's Shield protected your streak today. Missed daily quests were not completed or rewarded.",
+      });
+    } else {
+      if (dailyOverride === "hanged_man_paused") {
+        streakProtectedByArtifact = true;
+        nextLastCompletionDate = missedDate;
+      }
+
+      nextStats = subtractStatPenalty(nextStats, missedDailyPenalty);
+      nextHistory = appendHistoryEntry(nextHistory, nextStats);
+      log = appendLog(log, {
+        type: dailyOverride === "hanged_man_paused" ? "artifact" : "system_notice",
+        title:
+          dailyOverride === "hanged_man_paused"
+            ? "Time Hangs Still"
+            : "Consistency Penalty Applied",
+        details:
+          dailyOverride === "hanged_man_paused"
+            ? `The Hanged Man froze the streak, but failed-task stat loss still applied: ${describePenaltyStats(
+                missedDailyPenalty
+              )}.`
+            : `Daily protocol was not completed. Attributes reduced: ${describePenaltyStats(
+                missedDailyPenalty
+              )}.`,
+      });
+    }
   }
 
   if (!user.specialQuest.completed && user.specialQuest.status !== "waived") {
@@ -2394,7 +2499,7 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     });
   }
 
-  if (user.lastCompletionDate !== getYesterdayString()) {
+  if (user.lastCompletionDate !== getYesterdayString() && !streakProtectedByArtifact) {
     nextStreak = 0;
   }
 
@@ -2409,11 +2514,22 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
   return {
     ...user,
     profile: safeProfile,
+    lifetimeXp:
+      typeof user.lifetimeXp === "number" && Number.isFinite(user.lifetimeXp)
+        ? Math.max(0, Math.round(user.lifetimeXp))
+        : Math.max(0, Math.round(user.totalXp ?? 0)),
+    totalXp: Math.max(0, Math.round(user.totalXp ?? user.lifetimeXp ?? 0)),
+    spendableXp:
+      typeof user.spendableXp === "number" && Number.isFinite(user.spendableXp)
+        ? Math.max(0, Math.round(user.spendableXp))
+        : Math.max(0, Math.round(user.totalXp ?? user.lifetimeXp ?? 0)),
     quests: createDailyQuests(safeProfile),
     stats: nextStats,
     history: nextHistory,
     workoutJournal: safeWorkoutJournal,
+    workoutProgram: user.workoutProgram ?? null,
     householdTasks: safeHouseholdTasks,
+    taskHistory: safeTaskHistory,
     funSpecialActivities: safeFunSpecialActivities,
     foodJournal: safeFoodJournal,
     dietFeedback: safeDietFeedback,
@@ -2421,13 +2537,19 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     penaltyNotice,
     log,
     streak: nextStreak,
+    lastCompletionDate: nextLastCompletionDate,
     aiAnalysis: user.aiAnalysis ?? null,
     aiWeeklyPlan: user.aiWeeklyPlan ?? null,
     aiQuestIndex: user.aiQuestIndex ?? 0,
     artifacts: normalizeArtifacts(user.artifacts),
     activeEffects: {
+      ...safeEffects,
       doubleDailyXpDate: null,
+      magicianDoubleCastDate: null,
     },
+    artifactHistory: Array.isArray(user.artifactHistory)
+      ? user.artifactHistory
+      : [],
     lastResetDate: today,
     dailyHp: null,
     dailyHpDate: null,

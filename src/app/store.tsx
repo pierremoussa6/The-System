@@ -13,7 +13,9 @@ import type {
   AiSystemAnalysis,
   AiWeeklyPlan,
   AppState,
+  ArtifactActionResult,
   ArtifactKey,
+  ActiveEffects,
   DietFeedback,
   FoodJournalEntry,
   HouseholdTaskInput,
@@ -24,11 +26,22 @@ import type {
   UserProfile,
   UserRecord,
   WorkoutJournalEntry,
+  WorkoutProgram,
 } from "./types";
 
 import {
+  addArtifactCopy,
+  applyArtifactRewardModifiers,
+  consumeArtifactCopy,
+  createActiveArtifactEffect,
+  createDefaultActiveEffects,
   getArtifactMeta,
+  getArtifactPurchaseState,
+  getDailyQuestOverride,
+  getNextRankUpRequirements,
   getNewArtifactUnlocks,
+  getSpendableXp,
+  normalizeActiveEffects,
   unlockArtifacts,
 } from "./artifacts";
 
@@ -62,14 +75,18 @@ import {
   type RewardBundle,
 } from "./reward-system";
 import {
+  createTaskHistoryEntry,
   createHouseholdTask,
   getHouseholdTaskReward,
-  taskKindLabels,
 } from "./task-system";
 import { useAuth } from "./auth-context";
 import { getSupabaseBrowserClient } from "./lib/supabase/client";
 import { shouldAssignSpecialQuest } from "./schedule";
 import { sanitizeWeeklyPlanForProfile } from "./weekly-plan-system";
+import {
+  buildWorkoutProgram,
+  sanitizeWorkoutProgramForProfile,
+} from "./workout-system";
 
 const STORAGE_KEY = "the-system-multi-user-data";
 const SAVE_DELAY_MS = 600;
@@ -170,6 +187,8 @@ function getUserStatePayload(user: UserRecord) {
   return {
     user_id: user.id,
     total_xp: user.totalXp,
+    lifetime_xp: user.lifetimeXp ?? user.totalXp,
+    spendable_xp: user.spendableXp ?? user.totalXp,
     streak: user.streak,
     last_completion_date: user.lastCompletionDate,
     strength: user.stats.strength,
@@ -183,8 +202,11 @@ function getUserStatePayload(user: UserRecord) {
     daily_hp_date: user.dailyHpDate,
     ai_analysis_json: user.aiAnalysis,
     ai_weekly_plan_json: user.aiWeeklyPlan,
+    workout_program_json: user.workoutProgram,
     ai_quest_index: user.aiQuestIndex,
     active_effects_json: user.activeEffects,
+    artifact_history_json: user.artifactHistory ?? [],
+    task_history_json: user.taskHistory ?? [],
     app_state_json: user,
     updated_at: new Date().toISOString(),
   };
@@ -220,25 +242,53 @@ function applyRewardBundle(
     type: UserRecord["log"][number]["type"];
     title: string;
     details?: string;
-  }
+  },
+  source:
+    | "daily_quest"
+    | "special_quest"
+    | "fun_special_activity"
+    | "household_task"
+    | "artifact_bonus"
+    | "artifact_challenge"
+    | "system" = "system"
 ): UserRecord {
-  const nextStats = addStatRewards(user.stats, reward.statRewards);
-  const gainedStats = hasPositiveStatRewards(reward.statRewards);
+  const modified = applyArtifactRewardModifiers(
+    user,
+    reward,
+    source,
+    logEntry.title
+  );
+  const finalReward = modified.reward;
+  const nextStats = addStatRewards(user.stats, finalReward.statRewards);
+  const gainedStats = hasPositiveStatRewards(finalReward.statRewards);
   const nextHistory = gainedStats
     ? appendHistoryEntry(user.history, nextStats)
     : user.history;
-  const nextLog = appendLog(user.log, {
+  let nextLog = appendLog(user.log, {
     type: logEntry.type,
     title: logEntry.title,
-    details: logEntry.details ?? `Completed for ${formatRewardText(reward)}.`,
+    details:
+      logEntry.details ??
+      `Completed for ${formatRewardText(finalReward)}.`,
   });
+
+  for (const details of modified.logs) {
+    nextLog = appendLog(nextLog, {
+      type: "artifact",
+      title: "Artifact Effect Applied",
+      details,
+    });
+  }
 
   return applyArtifactUnlockRewards({
     ...user,
-    totalXp: user.totalXp + reward.xp,
+    lifetimeXp: (user.lifetimeXp ?? user.totalXp) + finalReward.xp,
+    totalXp: user.totalXp + finalReward.xp,
+    spendableXp: getSpendableXp(user) + finalReward.xp,
     stats: nextStats,
     history: nextHistory,
     log: nextLog,
+    activeEffects: modified.activeEffects,
   });
 }
 
@@ -398,20 +448,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateActiveUser((current) => {
       const today = getTodayString();
       const yesterday = getYesterdayString();
-      const hasDoubleXp = current.activeEffects.doubleDailyXpDate === today;
+      const dailyQuestOverride = getDailyQuestOverride(current.activeEffects, today);
+
+      if (dailyQuestOverride === "emperor_cancelled") {
+        return {
+          ...current,
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: "The Emperor's Law",
+            details:
+              "Daily quest completion was blocked because today's quests are cancelled by The Emperor.",
+          }),
+        };
+      }
 
       let xpToAdd = 0;
       let statRewards: Partial<Stats> = {};
       let loggedQuestTitle = "";
+      let nextActiveEffects = normalizeActiveEffects(current.activeEffects);
+      let modifierLogs: string[] = [];
 
       const nextQuests = current.quests.map((quest) => {
         if (quest.id !== id) return quest;
 
         if (!quest.completed) {
           if (!quest.awardedToday) {
-            xpToAdd = hasDoubleXp ? quest.xp * 2 : quest.xp;
-            statRewards = getQuestStatRewards(quest.id, quest);
+            const modified = applyArtifactRewardModifiers(
+              { ...current, activeEffects: nextActiveEffects },
+              {
+                xp: quest.xp,
+                statRewards: getQuestStatRewards(quest.id, quest),
+              },
+              "daily_quest",
+              quest.title
+            );
+
+            xpToAdd = modified.reward.xp;
+            statRewards = modified.reward.statRewards;
             loggedQuestTitle = quest.title;
+            nextActiveEffects = modified.activeEffects;
+            modifierLogs = modified.logs;
           }
 
           return {
@@ -438,7 +514,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         nextLog = appendLog(nextLog, {
           type: "daily_quest",
           title: loggedQuestTitle,
-          details: `Completed for +${xpToAdd} XP${hasDoubleXp ? " with XP Rune bonus" : ""}`,
+          details: `Completed for ${formatRewardText({
+            xp: xpToAdd,
+            statRewards,
+          })}.`,
+        });
+      }
+
+      for (const details of modifierLogs) {
+        nextLog = appendLog(nextLog, {
+          type: "artifact",
+          title: "Artifact Effect Applied",
+          details,
         });
       }
 
@@ -466,12 +553,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return applyArtifactUnlockRewards({
         ...current,
         quests: nextQuests,
+        lifetimeXp: (current.lifetimeXp ?? current.totalXp) + xpToAdd,
         totalXp: current.totalXp + xpToAdd,
+        spendableXp: getSpendableXp(current) + xpToAdd,
         streak: nextStreak,
         lastCompletionDate: nextLastCompletionDate,
         stats: nextStats,
         history: nextHistory,
         log: nextLog,
+        activeEffects: nextActiveEffects,
       });
     });
   }
@@ -490,11 +580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }, {
         type: "special_quest",
         title: current.specialQuest.title,
-        details: `Completed for ${formatRewardText({
-          xp: current.specialQuest.xp,
-          statRewards: current.specialQuest.statRewards,
-        })}.`,
-      });
+      }, "special_quest");
 
       return {
         ...rewardedUser,
@@ -577,6 +663,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const safeMemory = normalizeSpecialQuestMemory(
         current.specialQuestMemory
       );
+      const nextWorkoutProgram = buildWorkoutProgram(
+        safeProfile,
+        current.totalXp,
+        current.aiAnalysis
+      );
       const nextSpecialQuest = createDailySpecialQuest(
         getTodayString(),
         current.stats,
@@ -599,7 +690,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return {
         ...current,
         profile: safeProfile,
-        quests: createDailyQuests(safeProfile, getTodayString()),
+        workoutProgram: nextWorkoutProgram,
+        quests: createDailyQuests(
+          safeProfile,
+          getTodayString(),
+          nextWorkoutProgram
+        ),
         specialQuest: effectiveSpecialQuest,
         specialQuestMemory: appendSpecialQuestMemory(
           safeMemory,
@@ -661,10 +757,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      const nextWorkoutProgram = buildWorkoutProgram(
+        current.profile,
+        current.totalXp,
+        analysis
+      );
+
       return {
         ...current,
         aiAnalysis: analysis,
         aiQuestIndex: firstAiQuestIndex,
+        workoutProgram: nextWorkoutProgram,
+        quests: createDailyQuests(
+          current.profile,
+          today,
+          nextWorkoutProgram
+        ),
         specialQuest: nextSpecialQuest,
         specialQuestMemory: firstAiQuest
           ? appendSpecialQuestMemory(current.specialQuestMemory, nextSpecialQuest)
@@ -699,6 +807,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...current,
         aiWeeklyPlan: safePlan,
         log: nextLog,
+      };
+    });
+  }
+
+  function updateWorkoutProgram(program: WorkoutProgram | null) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const safeProgram = program
+        ? sanitizeWorkoutProgramForProfile(
+            program,
+            current.profile,
+            current.totalXp,
+            current.aiAnalysis
+          )
+        : buildWorkoutProgram(current.profile, current.totalXp, current.aiAnalysis);
+
+      return {
+        ...current,
+        workoutProgram: safeProgram,
+        quests: createDailyQuests(current.profile, getTodayString(), safeProgram),
+        log: appendLog(current.log, {
+          type: "system_notice",
+          title: "Workout Program Updated",
+          details:
+            "The canonical workout plan was updated. Workout phases, daily training quest text, and journal exercise options now use the same plan.",
+        }),
       };
     });
   }
@@ -801,15 +936,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
 
       const reward = getHouseholdTaskReward(completedTask);
+      const completedAt =
+        nextTasks.find((task) => task.id === id)?.completedAt ??
+        getTimestampString();
       const rewardedUser = applyRewardBundle(current, reward, {
         type: "household_task",
         title: completedTask.title,
-        details: `${taskKindLabels[completedTask.kind]} completed for ${formatRewardText(reward)}.`,
-      });
+      }, "household_task");
 
       return {
         ...rewardedUser,
         householdTasks: nextTasks,
+        taskHistory: [
+          createTaskHistoryEntry(completedTask, reward, completedAt),
+          ...(rewardedUser.taskHistory ?? current.taskHistory ?? []),
+        ].slice(0, 300),
       };
     });
   }
@@ -881,8 +1022,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const rewardedUser = applyRewardBundle(current, reward, {
         type: "special_quest",
         title: activity.title,
-        details: `Fun special activity completed for ${formatRewardText(reward)}.`,
-      });
+      }, "fun_special_activity");
 
       return {
         ...rewardedUser,
@@ -944,7 +1084,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }
 
-  function activateArtifact(key: ArtifactKey) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function activateLegacyArtifact(key: string) {
     if (!activeUser) return;
 
     updateActiveUser((current) => {
@@ -957,12 +1098,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return current;
       }
 
-      if (key === "xp_rune" && current.activeEffects.doubleDailyXpDate === today) {
+      if (key === "legacy-rune" && current.activeEffects.doubleDailyXpDate === today) {
         return current;
       }
 
       if (
-        key === "null_sigil" &&
+        key === "legacy-null" &&
         (!current.specialQuest ||
           current.specialQuest.completed ||
           current.specialQuest.awardedToday)
@@ -970,7 +1111,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return current;
       }
 
-      if (key === "rest_day_pass" && current.lastCompletionDate === today) {
+      if (key === "legacy-rest" && current.lastCompletionDate === today) {
         return current;
       }
 
@@ -980,9 +1121,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : item
       );
 
-      const meta = getArtifactMeta(key);
+      const meta = getArtifactMeta(key as ArtifactKey);
 
-      if (key === "xp_rune") {
+      if (key === "legacy-rune") {
         return {
           ...current,
           artifacts: nextArtifacts,
@@ -993,12 +1134,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           log: appendLog(current.log, {
             type: "artifact",
             title: meta.title,
-            details: "XP Rune activated. Daily quests completed today now grant double XP.",
+            details: "Legacy double-XP compatibility artifact activated.",
           }),
         };
       }
 
-      if (key === "null_sigil") {
+      if (key === "legacy-null") {
         return {
           ...current,
           artifacts: nextArtifacts,
@@ -1011,12 +1152,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           log: appendLog(current.log, {
             type: "artifact",
             title: meta.title,
-            details: "Null Sigil activated. Today’s special quest has been waived without reward or penalty.",
+            details: "Legacy special-quest waiver compatibility artifact activated.",
           }),
         };
       }
 
-      if (key === "rest_day_pass") {
+      if (key === "legacy-rest") {
         const nextStreak =
           current.lastCompletionDate === yesterday
             ? current.streak + 1
@@ -1037,13 +1178,670 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           log: appendLog(current.log, {
             type: "artifact",
             title: meta.title,
-            details: "Rest Day Pass activated. Daily protocol suspended and streak protected for today.",
+            details: "Legacy recovery compatibility artifact activated.",
           }),
         };
       }
 
       return current;
     });
+  }
+
+  function getWeakestStatKey(stats: Stats): keyof Stats {
+    return (Object.keys(stats) as Array<keyof Stats>).sort(
+      (a, b) => stats[a] - stats[b]
+    )[0];
+  }
+
+  function getStrongestStatKey(stats: Stats): keyof Stats {
+    return (Object.keys(stats) as Array<keyof Stats>).sort(
+      (a, b) => stats[b] - stats[a]
+    )[0];
+  }
+
+  function addPointsToWeakestStats(stats: Stats, points: number): Stats {
+    let nextStats = { ...stats };
+
+    for (let index = 0; index < points; index += 1) {
+      const key = getWeakestStatKey(nextStats);
+      nextStats = {
+        ...nextStats,
+        [key]: nextStats[key] + 1,
+      };
+    }
+
+    return nextStats;
+  }
+
+  function getWheelReward(stats: Stats): {
+    outcome: string;
+    xp: number;
+    statRewards: Partial<Stats>;
+  } {
+    const roll = Math.random();
+    const randomStat = getWeakestStatKey(stats);
+
+    if (roll < 0.25) return { outcome: "+100 XP", xp: 100, statRewards: {} };
+    if (roll < 0.45) return { outcome: "+200 XP", xp: 200, statRewards: {} };
+    if (roll < 0.6) {
+      return { outcome: "+2 random stat points", xp: 0, statRewards: { [randomStat]: 2 } };
+    }
+    if (roll < 0.7) {
+      return { outcome: "+10 random stat points", xp: 0, statRewards: { [randomStat]: 10 } };
+    }
+    if (roll < 0.85) return { outcome: "No bonus", xp: 0, statRewards: {} };
+    if (roll < 0.95) return { outcome: "+500 XP", xp: 500, statRewards: {} };
+    if (roll < 0.99) return { outcome: "+800 XP", xp: 800, statRewards: {} };
+    return { outcome: "Jackpot +2000 XP", xp: 2000, statRewards: {} };
+  }
+
+  function createArtifactActionResult(
+    artifactId: ArtifactKey,
+    eventType: ArtifactActionResult["eventType"],
+    ok: boolean,
+    message: string,
+    metadata?: Record<string, unknown>
+  ): ArtifactActionResult {
+    return {
+      ok,
+      artifactId,
+      eventType,
+      message,
+      metadata,
+    };
+  }
+
+  function purchaseArtifact(key: ArtifactKey): ArtifactActionResult {
+    let result = createArtifactActionResult(
+      key,
+      "purchase",
+      false,
+      "No active user selected."
+    );
+
+    if (!activeUser) return result;
+
+    updateActiveUser((current) => {
+      const state = getArtifactPurchaseState(current, key);
+      const meta = getArtifactMeta(key as ArtifactKey);
+
+      if (!state.canPurchase || state.cost === null) {
+        result = createArtifactActionResult(
+          key,
+          "purchase",
+          false,
+          state.reason
+        );
+
+        return {
+          ...current,
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: `Artifact Purchase Blocked: ${meta.title}`,
+            details: state.reason,
+          }),
+        };
+      }
+
+      const activeEffects = normalizeActiveEffects(current.activeEffects);
+      result = createArtifactActionResult(
+        key,
+        "purchase",
+        true,
+        `${meta.title} purchased for ${state.cost} spendable XP.`,
+        {
+          cost: state.cost,
+          lifetimeXp: current.totalXp,
+          spendableXpAfter: getSpendableXp(current) - state.cost,
+        }
+      );
+
+      return {
+        ...current,
+        artifacts: addArtifactCopy(current.artifacts, key, "purchase"),
+        spendableXp: getSpendableXp(current) - state.cost,
+        activeEffects: {
+          ...activeEffects,
+          oneTimeUse:
+            key === "fool_last_trick"
+              ? { ...activeEffects.oneTimeUse, fool_last_trick: true }
+              : activeEffects.oneTimeUse,
+        },
+        artifactHistory: [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            userId: current.id,
+            artifactId: key,
+            artifactName: meta.title,
+            eventType: "purchased" as const,
+            date: getTimestampString(),
+            xpChange: -state.cost,
+            details: `${meta.title} purchased for ${state.cost} spendable XP. Lifetime XP remains ${current.totalXp}.`,
+          },
+          ...(current.artifactHistory ?? []),
+        ].slice(0, 200),
+        log: appendLog(current.log, {
+          type: "artifact",
+          title: `Artifact Purchased: ${meta.title}`,
+          details: `${state.cost} spendable XP spent. Lifetime XP remains ${current.totalXp}; rank cannot decrease from this purchase.`,
+        }),
+      };
+    });
+
+    return result;
+  }
+
+  function activateArtifact(key: ArtifactKey): ArtifactActionResult {
+    let result = createArtifactActionResult(
+      key,
+      "activation",
+      false,
+      "Artifact was not activated."
+    );
+
+    if (!activeUser) return result;
+
+    updateActiveUser((current) => {
+      const today = getTodayString();
+      const yesterday = getYesterdayString();
+      const activeEffects = normalizeActiveEffects(current.activeEffects);
+      const artifact = current.artifacts.find((item) => item.key === key);
+      const meta = getArtifactMeta(key as ArtifactKey);
+
+      if (!artifact || !artifact.unlocked || !artifact.usable || artifact.quantity <= 0) {
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          false,
+          "No usable copy is available."
+        );
+        return current;
+      }
+
+      const hasActiveSameArtifact = activeEffects.artifactEffects.some(
+        (effect) =>
+          effect.artifactId === key &&
+          (effect.status === "active" || effect.status === "unused")
+      );
+
+      if (
+        (key === "sun_radiance" ||
+          key === "judgement_shield" ||
+          key === "devil_contract" ||
+          key === "world_completion") &&
+        hasActiveSameArtifact
+      ) {
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          false,
+          `${meta.title} already has an unresolved active effect.`
+        );
+        return current;
+      }
+
+      if (key === "fool_last_trick") {
+        if (activeEffects.oneTimeUse.fool_last_trick_used) {
+          result = createArtifactActionResult(
+            key,
+            "activation",
+            false,
+            "The Fool's Last Trick has already been used."
+          );
+          return current;
+        }
+
+        const rankUp = getNextRankUpRequirements(current);
+        const nextStats = addPointsToWeakestStats(
+          current.stats,
+          rankUp.statPointsNeeded
+        );
+        const lifetimeXpGain = rankUp.lifetimeXpNeeded;
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          rankUp.nextRank === null
+            ? "The Fool laughs, but there is no higher rank to bend toward."
+            : "The Fool laughs... reality bends... Rank Up!",
+          {
+            currentRank: rankUp.currentRank,
+            nextRank: rankUp.nextRank,
+            lifetimeXpGain,
+            statPointsAdded: rankUp.statPointsNeeded,
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "used"),
+          lifetimeXp: (current.lifetimeXp ?? current.totalXp) + lifetimeXpGain,
+          totalXp: current.totalXp + lifetimeXpGain,
+          stats: nextStats,
+          history:
+            rankUp.statPointsNeeded > 0
+              ? appendHistoryEntry(current.history, nextStats)
+              : current.history,
+          activeEffects: {
+            ...activeEffects,
+            oneTimeUse: {
+              ...activeEffects.oneTimeUse,
+              fool_last_trick: true,
+              fool_last_trick_used: true,
+            },
+          },
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details:
+              rankUp.nextRank === null
+                ? "The Fool laughs, but there is no higher rank to bend toward."
+                : `The Fool laughs... reality bends... Rank Up! Advanced toward Rank ${rankUp.nextRank}. Spendable XP was not changed.`,
+          }),
+        };
+      }
+
+      if (key === "sun_radiance") {
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          "The Sun rises. All quest XP is multiplied by 10 for 24 hours.",
+          {
+            expiresAt,
+            multiplier: 10,
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "active"),
+          activeEffects: {
+            ...activeEffects,
+            artifactEffects: [
+              createActiveArtifactEffect(key, "quest_xp_multiplier", expiresAt, {
+                multiplier: 10,
+              }),
+              ...activeEffects.artifactEffects,
+            ],
+          },
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details:
+              "The Sun rises. All quest XP is multiplied by 10 for 24 hours.",
+          }),
+        };
+      }
+
+      if (key === "judgement_shield") {
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          "Judgement has raised its shield. Your streak is protected for 7 days.",
+          {
+            expiresAt,
+            days: 7,
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "active"),
+          activeEffects: {
+            ...activeEffects,
+            artifactEffects: [
+              createActiveArtifactEffect(key, "streak_shield", expiresAt, {
+                days: 7,
+              }),
+              ...activeEffects.artifactEffects,
+            ],
+          },
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details:
+              "Judgement has raised its shield. Your streak is protected for 7 days.",
+          }),
+        };
+      }
+
+      if (key === "emperor_law") {
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          "Quests cancelled by order of the Emperor.",
+          {
+            date: today,
+            dailyQuestOverride: "emperor_cancelled",
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "used"),
+          lastCompletionDate: today,
+          streak: Math.max(1, current.streak),
+          activeEffects: {
+            ...activeEffects,
+            dailyQuestOverrides: {
+              ...activeEffects.dailyQuestOverrides,
+              [today]: "emperor_cancelled",
+            },
+          },
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details:
+              "Quests cancelled by order of the Emperor. No quest rewards were granted.",
+          }),
+        };
+      }
+
+      if (key === "hanged_man_rope") {
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          "Time hangs still.",
+          {
+            date: today,
+            dailyQuestOverride: "hanged_man_paused",
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "used"),
+          lastCompletionDate: today,
+          streak: Math.max(1, current.streak),
+          activeEffects: {
+            ...activeEffects,
+            dailyQuestOverrides: {
+              ...activeEffects.dailyQuestOverrides,
+              [today]: "hanged_man_paused",
+            },
+          },
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details:
+              "Time hangs still. The streak is frozen for today; failed-task stat loss can still apply.",
+          }),
+        };
+      }
+
+      if (key === "tower_ruins") {
+        const canRecover =
+          current.streak === 0 ||
+          (current.lastCompletionDate !== today &&
+            current.lastCompletionDate !== yesterday);
+
+        if (!canRecover) {
+          result = createArtifactActionResult(
+            key,
+            "activation",
+            false,
+            "The Tower can only be used after a missed streak."
+          );
+          return current;
+        }
+
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          "The Tower has collapsed, but your streak rises from the ruins.",
+          {
+            restoredStreak: Math.max(1, current.streak),
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "used"),
+          streak: Math.max(1, current.streak),
+          lastCompletionDate: today,
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details:
+              "The Tower has collapsed, but your streak rises from the ruins. Missed quests were not rewarded.",
+          }),
+        };
+      }
+
+      if (key === "wheel_fortune_gamble") {
+        const allDailyDone =
+          current.quests.length > 0 &&
+          current.quests.every((quest) => quest.completed);
+
+        if (!allDailyDone || activeEffects.wheelSpins[today]) {
+          result = createArtifactActionResult(
+            key,
+            "activation",
+            false,
+            activeEffects.wheelSpins[today]
+              ? "Wheel of Fortune has already been spun today."
+              : "Complete all daily quests before spinning the Wheel."
+          );
+          return current;
+        }
+
+        const wheelReward = getWheelReward(current.stats);
+        const nextStats = addStatRewards(current.stats, wheelReward.statRewards);
+        const gainedStats = hasPositiveStatRewards(wheelReward.statRewards);
+        const nextEffects: ActiveEffects = {
+          ...activeEffects,
+          wheelSpins: {
+            ...activeEffects.wheelSpins,
+            [today]: {
+              artifactId: key,
+              outcome: wheelReward.outcome,
+              xp: wheelReward.xp,
+              statRewards: wheelReward.statRewards,
+              spunAt: getTimestampString(),
+            },
+          },
+        };
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          `The Wheel has chosen: ${wheelReward.outcome}.`,
+          {
+            wheelSpin: nextEffects.wheelSpins[today],
+            date: today,
+          }
+        );
+
+        return applyArtifactUnlockRewards({
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "used"),
+          lifetimeXp: (current.lifetimeXp ?? current.totalXp) + wheelReward.xp,
+          totalXp: current.totalXp + wheelReward.xp,
+          spendableXp: getSpendableXp(current) + wheelReward.xp,
+          stats: nextStats,
+          history: gainedStats
+            ? appendHistoryEntry(current.history, nextStats)
+            : current.history,
+          activeEffects: nextEffects,
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details: `The Wheel has chosen: ${wheelReward.outcome}. Result saved for ${today}.`,
+          }),
+        });
+      }
+
+      if (key === "justice_balance_scale") {
+        const from = getStrongestStatKey(current.stats);
+        const to = getWeakestStatKey(current.stats);
+        const amount = Math.min(20, current.stats[from]);
+
+        if (from === to || amount <= 0) {
+          result = createArtifactActionResult(
+            key,
+            "activation",
+            false,
+            "Justice could not find two different stats to rebalance."
+          );
+          return current;
+        }
+
+        const nextStats = {
+          ...current.stats,
+          [from]: current.stats[from] - amount,
+          [to]: current.stats[to] + amount,
+        };
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          "Justice restores balance.",
+          {
+            from,
+            to,
+            amount,
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: consumeArtifactCopy(current.artifacts, key, "used"),
+          stats: nextStats,
+          history: appendHistoryEntry(current.history, nextStats),
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details: `Justice restores balance. Moved ${amount} point(s) from ${from} to ${to}.`,
+          }),
+        };
+      }
+
+      if (key === "death_transformation") {
+        const candidates = current.artifacts.filter(
+          (item) =>
+            item.quantity > 0 &&
+            item.key !== "death_transformation" &&
+            item.key !== "fool_last_trick" &&
+            (item.rarity === "common" ||
+              item.rarity === "rare" ||
+              item.rarity === "epic")
+        );
+        const target = candidates[0];
+
+        if (!target) {
+          result = createArtifactActionResult(
+            key,
+            "activation",
+            false,
+            "Death could not find an eligible owned artifact to transform."
+          );
+          return current;
+        }
+
+        const roll = Math.random();
+        const transformed = current.artifacts.find((item) => {
+          if (item.key === "fool_last_trick") return false;
+          if (target.rarity === "common") {
+            return item.rarity === (roll < 0.5 ? "rare" : "epic");
+          }
+          if (target.rarity === "rare") return item.rarity === "epic";
+          return item.rarity === "legendary";
+        });
+        const success =
+          (target.rarity === "common" && roll <= 0.66) ||
+          (target.rarity === "rare" && roll <= 0.355) ||
+          (target.rarity === "epic" && roll <= 0.005);
+        let nextArtifacts = consumeArtifactCopy(current.artifacts, key, "used");
+
+        if (success && transformed) {
+          nextArtifacts = consumeArtifactCopy(nextArtifacts, target.key, "used");
+          nextArtifacts = addArtifactCopy(
+            nextArtifacts,
+            transformed.key,
+            "transformation"
+          );
+        }
+        result = createArtifactActionResult(
+          key,
+          "activation",
+          true,
+          success && transformed
+            ? "Death is not the end. It is transformation."
+            : `Death stirred around ${target.title}, but no transformation occurred.`,
+          {
+            target: target.title,
+            transformedInto: success && transformed ? transformed.title : null,
+            success: success && Boolean(transformed),
+          }
+        );
+
+        return {
+          ...current,
+          artifacts: nextArtifacts,
+          log: appendLog(current.log, {
+            type: "artifact",
+            title: meta.title,
+            details:
+              success && transformed
+                ? `Death is not the end. ${target.title} transformed into ${transformed.title}.`
+                : `Death stirred around ${target.title}, but no transformation occurred.`,
+          }),
+        };
+      }
+
+      const genericDurations: Partial<Record<ArtifactKey, number | null>> = {
+        strength_lion_heart: 24 * 60 * 60 * 1000,
+        hermit_lantern: 24 * 60 * 60 * 1000,
+        devil_contract: null,
+        world_completion: 30 * 24 * 60 * 60 * 1000,
+      };
+      const duration = genericDurations[key];
+      const expiresAt =
+        duration === undefined
+          ? null
+          : duration === null
+          ? null
+          : new Date(Date.now() + duration).toISOString();
+      result = createArtifactActionResult(
+        key,
+        "activation",
+        true,
+        `${meta.title} activated.`,
+        {
+          expiresAt,
+          effectType: meta.type,
+        }
+      );
+
+      return {
+        ...current,
+        artifacts: consumeArtifactCopy(current.artifacts, key, "active"),
+        activeEffects: {
+          ...activeEffects,
+          artifactEffects: [
+            createActiveArtifactEffect(key, meta.type, expiresAt, {
+              title: meta.title,
+              ability: meta.ability,
+            }),
+            ...activeEffects.artifactEffects,
+          ],
+        },
+        log: appendLog(current.log, {
+          type: "artifact",
+          title: meta.title,
+          details: `${meta.title} activated. ${meta.ability}`,
+        }),
+      };
+    });
+
+    return result;
   }
 
   function createUser(name: string) {
@@ -1188,11 +1986,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         quests: activeUser?.quests ?? [],
         streak: activeUser?.streak ?? 0,
         lastCompletionDate: activeUser?.lastCompletionDate ?? null,
+        lifetimeXp: activeUser?.lifetimeXp ?? activeUser?.totalXp ?? 0,
         totalXp: activeUser?.totalXp ?? 0,
+        spendableXp: activeUser?.spendableXp ?? activeUser?.totalXp ?? 0,
         stats: activeUser?.stats ?? defaultStats,
         history: activeUser?.history ?? [],
         workoutJournal: activeUser?.workoutJournal ?? [],
+        workoutProgram: activeUser?.workoutProgram ?? null,
         householdTasks: activeUser?.householdTasks ?? [],
+        taskHistory: activeUser?.taskHistory ?? [],
         funSpecialActivities: activeUser?.funSpecialActivities ?? [],
         foodJournal: activeUser?.foodJournal ?? [],
         dietFeedback: activeUser?.dietFeedback ?? [],
@@ -1204,9 +2006,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         aiWeeklyPlan: activeUser?.aiWeeklyPlan ?? null,
         aiQuestIndex: activeUser?.aiQuestIndex ?? 0,
         artifacts: activeUser?.artifacts ?? [],
-        activeEffects: activeUser?.activeEffects ?? {
-          doubleDailyXpDate: null,
-        },
+        activeEffects: activeUser?.activeEffects ?? createDefaultActiveEffects(),
+        artifactHistory: activeUser?.artifactHistory ?? [],
         dailyHp: activeUser?.dailyHp ?? null,
         dailyHpDate: activeUser?.dailyHpDate ?? null,
 
@@ -1229,6 +2030,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteFoodJournalEntry,
         saveDietFeedback,
         activateArtifact,
+        purchaseArtifact,
+        updateWorkoutProgram,
 
         createUser,
         switchUser,

@@ -77,3 +77,903 @@ a {
 ::-webkit-scrollbar-thumb:hover {
   background: rgb(63 63 70);
 }
+
+.artifact-animation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.artifact-animation-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background:
+    radial-gradient(circle at center, rgba(39, 39, 42, 0.72), rgba(0, 0, 0, 0.92)),
+    rgba(0, 0, 0, 0.78);
+}
+
+.artifact-animation-shell {
+  position: relative;
+  width: min(640px, 100%);
+  min-height: 480px;
+  overflow: hidden;
+  border: 1px solid rgba(161, 161, 170, 0.38);
+  border-radius: 12px;
+  background:
+    linear-gradient(140deg, rgba(24, 24, 27, 0.96), rgba(9, 9, 11, 0.98)),
+    rgb(9, 9, 11);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.62);
+  padding: 1.5rem;
+  animation: artifact-shell-in 220ms ease-out both;
+}
+
+.artifact-animation-orbit {
+  position: absolute;
+  inset: -30%;
+  opacity: 0.22;
+  background:
+    conic-gradient(from 0deg, transparent, rgba(255, 255, 255, 0.24), transparent 25%),
+    radial-gradient(circle, transparent 0 45%, rgba(255, 255, 255, 0.08) 46%, transparent 48%);
+  animation: artifact-orbit 8s linear infinite;
+}
+
+.artifact-scene {
+  position: relative;
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+}
+
+.artifact-animation-card {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 170px;
+  height: 230px;
+  place-items: center;
+  border-width: 1px;
+  border-radius: 10px;
+  background:
+    linear-gradient(160deg, rgba(39, 39, 42, 0.95), rgba(9, 9, 11, 0.98)),
+    rgb(24, 24, 27);
+  box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.04), 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.artifact-animation-symbol {
+  font-size: 2.25rem;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+}
+
+.artifact-animation-card-title {
+  position: absolute;
+  bottom: 1rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: rgb(161 161 170);
+  text-transform: uppercase;
+}
+
+.artifact-fool-scene .artifact-animation-card {
+  animation: artifact-fool-flip 1.4s ease-in-out both, artifact-fool-glitch 260ms steps(2, end) 1.45s 5;
+}
+
+.artifact-fool-flash {
+  position: absolute;
+  inset: 15%;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.72);
+  filter: blur(30px);
+  opacity: 0;
+  animation: artifact-flash 1.8s ease-out 1.25s both;
+}
+
+.artifact-rank-reveal {
+  position: absolute;
+  right: 8%;
+  bottom: 10%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  padding: 0.45rem 0.8rem;
+  font-weight: 700;
+  opacity: 0;
+  animation: artifact-reveal-up 700ms ease-out 2s both;
+}
+
+.artifact-quest-list {
+  display: grid;
+  width: min(360px, 90%);
+  gap: 0.7rem;
+}
+
+.artifact-quest-list span {
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  border-radius: 8px;
+  background: rgba(39, 39, 42, 0.92);
+  color: rgb(212 212 216);
+  padding: 0.85rem;
+  animation: artifact-quest-fade 1.2s ease-out 600ms both;
+}
+
+.artifact-emperor-stamp {
+  position: absolute;
+  border: 4px solid rgba(239, 68, 68, 0.86);
+  border-radius: 9px;
+  color: rgb(252 165 165);
+  font-size: clamp(1.1rem, 5vw, 2rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.55rem 0.9rem;
+  text-align: center;
+  transform: rotate(-12deg) scale(1.8);
+  opacity: 0;
+  animation: artifact-stamp 700ms cubic-bezier(0.2, 1.6, 0.35, 1) 800ms both;
+}
+
+.artifact-wheel-scene {
+  min-height: 300px;
+}
+
+.artifact-wheel-pointer {
+  position: absolute;
+  top: 0.25rem;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  border-right: 13px solid transparent;
+  border-left: 13px solid transparent;
+  border-top: 26px solid rgb(250 204 21);
+  filter: drop-shadow(0 0 10px rgba(250, 204, 21, 0.5));
+}
+
+.artifact-wheel {
+  position: relative;
+  display: grid;
+  width: min(260px, 74vw);
+  height: min(260px, 74vw);
+  place-items: center;
+  border: 7px solid rgba(250, 204, 21, 0.72);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgb(24 24 27) 0 16%, transparent 17%),
+    conic-gradient(
+      rgb(59 130 246) 0 12.5%,
+      rgb(14 165 233) 12.5% 25%,
+      rgb(168 85 247) 25% 37.5%,
+      rgb(217 70 239) 37.5% 50%,
+      rgb(63 63 70) 50% 62.5%,
+      rgb(34 197 94) 62.5% 75%,
+      rgb(250 204 21) 75% 87.5%,
+      rgb(234 179 8) 87.5% 100%
+    );
+  box-shadow: 0 0 34px rgba(250, 204, 21, 0.26);
+  animation: artifact-wheel-spin 4.2s cubic-bezier(0.12, 0.78, 0.16, 1) both;
+}
+
+.artifact-wheel::after {
+  content: "";
+  width: 56px;
+  height: 56px;
+  border: 4px solid rgba(255, 255, 255, 0.34);
+  border-radius: 50%;
+  background: rgb(24 24 27);
+}
+
+.artifact-wheel span {
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  width: 74px;
+  margin-left: -37px;
+  color: white;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.72);
+  transform-origin: 50% 8px;
+}
+
+.artifact-wheel span:nth-child(1) { transform: rotate(22deg) translateY(-104px); }
+.artifact-wheel span:nth-child(2) { transform: rotate(67deg) translateY(-104px); }
+.artifact-wheel span:nth-child(3) { transform: rotate(112deg) translateY(-104px); }
+.artifact-wheel span:nth-child(4) { transform: rotate(157deg) translateY(-104px); }
+.artifact-wheel span:nth-child(5) { transform: rotate(202deg) translateY(-104px); }
+.artifact-wheel span:nth-child(6) { transform: rotate(247deg) translateY(-104px); }
+.artifact-wheel span:nth-child(7) { transform: rotate(292deg) translateY(-104px); }
+.artifact-wheel span:nth-child(8) { transform: rotate(337deg) translateY(-104px); }
+
+.artifact-wheel-result {
+  position: absolute;
+  bottom: 0;
+  border: 1px solid rgba(250, 204, 21, 0.42);
+  border-radius: 9999px;
+  background: rgba(113, 63, 18, 0.72);
+  color: rgb(254 240 138);
+  padding: 0.55rem 0.85rem;
+  font-weight: 800;
+  opacity: 0;
+  animation: artifact-reveal-up 700ms ease-out 4.15s both;
+}
+
+.artifact-death-scene {
+  gap: 1rem;
+}
+
+.artifact-transform-card {
+  display: grid;
+  width: min(180px, 38vw);
+  min-height: 150px;
+  place-items: center;
+  border: 1px solid rgb(63 63 70);
+  border-radius: 10px;
+  background: rgb(24 24 27);
+  color: white;
+  padding: 1rem;
+  text-align: center;
+}
+
+.artifact-transform-source {
+  animation: artifact-card-crack 2.3s ease-in both;
+}
+
+.artifact-transform-target {
+  opacity: 0;
+  animation: artifact-card-rise 900ms ease-out 2s both;
+}
+
+.artifact-transform-smoke {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(39, 39, 42, 0.9), transparent 65%),
+    radial-gradient(circle at 35% 40%, rgba(147, 51, 234, 0.38), transparent 35%);
+  filter: blur(8px);
+  opacity: 0;
+  animation: artifact-smoke 2.6s ease-in-out both;
+}
+
+.artifact-contract {
+  width: min(330px, 88vw);
+  border: 1px solid rgba(239, 68, 68, 0.54);
+  border-radius: 8px;
+  background: linear-gradient(160deg, rgba(69, 10, 10, 0.95), rgba(24, 24, 27, 0.98));
+  box-shadow: 0 0 34px rgba(239, 68, 68, 0.22);
+  color: rgb(254 202 202);
+  padding: 2rem;
+  text-align: center;
+  animation: artifact-contract-burn 2.8s ease-in-out both;
+}
+
+.artifact-contract span {
+  font-size: 1.3rem;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+}
+
+.artifact-tower {
+  position: relative;
+  display: grid;
+  width: 120px;
+  gap: 7px;
+}
+
+.artifact-tower span {
+  height: 52px;
+  border: 1px solid rgba(148, 163, 184, 0.48);
+  border-radius: 6px;
+  background: rgb(39 39 42);
+  animation: artifact-tower-shatter 1.5s ease-in-out both;
+}
+
+.artifact-tower span:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.artifact-tower span:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+.artifact-tower-glow {
+  position: absolute;
+  bottom: 0;
+  color: rgb(34 197 94);
+  font-weight: 800;
+  opacity: 0;
+  animation: artifact-reveal-up 700ms ease-out 1.8s both;
+}
+
+.artifact-sunburst {
+  position: absolute;
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(from 0deg, rgba(250, 204, 21, 0.72) 0 9deg, transparent 9deg 18deg),
+    radial-gradient(circle, rgba(250, 204, 21, 0.68), transparent 66%);
+  filter: blur(0.5px);
+  animation: artifact-sunburst 2.7s ease-out both;
+}
+
+.artifact-sun-core {
+  z-index: 2;
+  display: grid;
+  width: 130px;
+  height: 130px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(250 204 21);
+  color: rgb(24 24 27);
+  font-size: 2rem;
+  font-weight: 900;
+  box-shadow: 0 0 40px rgba(250, 204, 21, 0.64);
+  animation: artifact-pulse 1.3s ease-in-out infinite;
+}
+
+.artifact-countdown-card {
+  position: absolute;
+  bottom: 0;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 9999px;
+  background: rgba(24, 24, 27, 0.8);
+  color: rgb(244 244 245);
+  padding: 0.5rem 0.8rem;
+}
+
+.artifact-trumpet {
+  position: absolute;
+  top: 1rem;
+  color: rgb(250 204 21);
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+  animation: artifact-reveal-down 600ms ease-out both;
+}
+
+.artifact-shield {
+  display: grid;
+  width: 160px;
+  height: 185px;
+  place-items: center;
+  border: 4px solid rgba(96, 165, 250, 0.86);
+  border-radius: 80px 80px 50px 50px;
+  background: rgba(37, 99, 235, 0.18);
+  color: rgb(191 219 254);
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  box-shadow: 0 0 44px rgba(59, 130, 246, 0.32);
+  animation: artifact-shield-pulse 1.8s ease-out 350ms both;
+}
+
+.artifact-world-ring {
+  width: 220px;
+  height: 220px;
+  border: 8px solid rgba(34, 197, 94, 0.72);
+  border-radius: 50%;
+  box-shadow: inset 0 0 36px rgba(34, 197, 94, 0.18), 0 0 40px rgba(34, 197, 94, 0.26);
+  animation: artifact-world-complete 2.6s ease-in-out both;
+}
+
+.artifact-world-core {
+  position: absolute;
+  color: rgb(187 247 208);
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.artifact-lovers-scene {
+  gap: 1rem;
+}
+
+.artifact-pact-card {
+  display: grid;
+  width: min(165px, 38vw);
+  height: 190px;
+  place-items: center;
+  border: 1px solid rgba(34, 211, 238, 0.44);
+  border-radius: 10px;
+  background: rgba(8, 47, 73, 0.72);
+  color: rgb(165 243 252);
+  font-weight: 900;
+}
+
+.artifact-pact-chosen {
+  animation: artifact-pact-chosen 1.2s ease-out both;
+}
+
+.artifact-pact-faded {
+  animation: artifact-pact-faded 1.2s ease-out both;
+}
+
+.artifact-scale {
+  position: relative;
+  display: flex;
+  width: min(360px, 90vw);
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-top: 3rem;
+  animation: artifact-scale-balance 1.8s ease-in-out both;
+}
+
+.artifact-scale::before {
+  content: "";
+  position: absolute;
+  top: 46%;
+  left: 12%;
+  width: 76%;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgb(212 212 216);
+}
+
+.artifact-scale::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  left: 50%;
+  width: 4px;
+  height: 110px;
+  border-radius: 9999px;
+  background: rgb(212 212 216);
+}
+
+.artifact-scale span {
+  display: grid;
+  width: 125px;
+  min-height: 72px;
+  place-items: center;
+  border: 1px solid rgba(212, 212, 216, 0.42);
+  border-radius: 0 0 9999px 9999px;
+  background: rgba(39, 39, 42, 0.9);
+  color: white;
+  padding: 0.6rem;
+  text-align: center;
+}
+
+.artifact-scale-note {
+  position: absolute;
+  bottom: 0;
+  color: rgb(226 232 240);
+}
+
+.artifact-generic-scene .artifact-animation-card {
+  animation: artifact-card-rise 900ms ease-out both, artifact-pulse 1.4s ease-in-out 900ms 2;
+}
+
+.artifact-generic-ripple {
+  position: absolute;
+  width: 230px;
+  height: 230px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  animation: artifact-ripple 1.6s ease-out 450ms both;
+}
+
+.active-artifact-effect-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.active-artifact-effect-card::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -55% -20%;
+  height: 80%;
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.18), transparent 60%);
+  animation: artifact-active-glow 2.4s ease-in-out infinite;
+}
+
+.active-artifact-effect-card[data-artifact="sun_radiance"] {
+  animation: artifact-sun-card-pulse 2s ease-in-out infinite;
+}
+
+.active-artifact-effect-card[data-artifact="judgement_shield"] {
+  animation: artifact-shield-card-pulse 2.6s ease-in-out infinite;
+}
+
+.daily-quest-override-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.daily-quest-override-card::after {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  border: 3px solid currentColor;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  opacity: 0.82;
+  transform: rotate(-8deg);
+}
+
+.daily-quest-override-card[data-override="emperor_cancelled"]::after {
+  content: "CANCELLED BY THE EMPEROR";
+  color: rgb(252 165 165);
+  animation: artifact-stamp 700ms cubic-bezier(0.2, 1.6, 0.35, 1) both;
+}
+
+.daily-quest-override-card[data-override="hanged_man_paused"]::after {
+  content: "STREAK PAUSED";
+  color: rgb(216 180 254);
+  animation: artifact-reveal-up 600ms ease-out both;
+}
+
+.quest-sun-boost {
+  position: relative;
+  overflow: hidden;
+}
+
+.quest-sun-boost::after {
+  content: "x10";
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(250 204 21);
+  color: rgb(24 24 27);
+  font-weight: 900;
+  transform: translateY(-50%) scale(0.3);
+  opacity: 0;
+  box-shadow: 0 0 28px rgba(250, 204, 21, 0.5);
+  animation: quest-sun-boost-flash 1.1s ease-out both;
+}
+
+@keyframes artifact-shell-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes artifact-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes artifact-fool-flip {
+  0% {
+    transform: rotateY(0deg) rotateZ(-4deg) scale(0.92);
+  }
+  45% {
+    transform: rotateY(180deg) rotateZ(8deg) scale(1.08);
+  }
+  100% {
+    transform: rotateY(360deg) rotateZ(0deg) scale(1);
+  }
+}
+
+@keyframes artifact-fool-glitch {
+  0%, 100% {
+    filter: none;
+    transform: translateX(0);
+  }
+  50% {
+    filter: contrast(1.7) hue-rotate(65deg);
+    transform: translateX(7px);
+  }
+}
+
+@keyframes artifact-flash {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  45% {
+    opacity: 0.9;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes artifact-reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes artifact-reveal-down {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes artifact-quest-fade {
+  to {
+    opacity: 0.35;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes artifact-stamp {
+  0% {
+    opacity: 0;
+    transform: rotate(-12deg) scale(1.8);
+  }
+  70% {
+    opacity: 1;
+    transform: rotate(-12deg) scale(0.95);
+  }
+  100% {
+    opacity: 0.9;
+    transform: rotate(-12deg) scale(1);
+  }
+}
+
+@keyframes artifact-wheel-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(var(--artifact-wheel-end, 1440deg));
+  }
+}
+
+@keyframes artifact-card-crack {
+  0% {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+    filter: none;
+  }
+  65% {
+    opacity: 0.7;
+    transform: rotate(-5deg) scale(0.96);
+    filter: grayscale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(18px) rotate(8deg) scale(0.72);
+    filter: grayscale(1) blur(3px);
+  }
+}
+
+@keyframes artifact-card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes artifact-smoke {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+  45%, 70% {
+    opacity: 0.85;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes artifact-contract-burn {
+  0% {
+    transform: translateY(18px);
+    box-shadow: 0 0 0 rgba(239, 68, 68, 0);
+  }
+  55% {
+    transform: translateY(0);
+    box-shadow: 0 0 44px rgba(239, 68, 68, 0.36);
+  }
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 0 22px rgba(239, 68, 68, 0.22), inset 0 -18px 50px rgba(239, 68, 68, 0.18);
+  }
+}
+
+@keyframes artifact-tower-shatter {
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+  48% {
+    transform: translateY(18px) rotate(9deg);
+    opacity: 0.45;
+  }
+  100% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+    box-shadow: 0 0 18px rgba(34, 197, 94, 0.28);
+  }
+}
+
+@keyframes artifact-sunburst {
+  from {
+    opacity: 0;
+    transform: scale(0.45) rotate(0deg);
+  }
+  to {
+    opacity: 0.9;
+    transform: scale(1.15) rotate(85deg);
+  }
+}
+
+@keyframes artifact-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes artifact-shield-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes artifact-world-complete {
+  0% {
+    clip-path: inset(0 100% 0 0);
+    transform: rotate(-90deg) scale(0.9);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes artifact-pact-chosen {
+  from {
+    transform: translateX(-20px) scale(0.95);
+  }
+  to {
+    transform: translateX(0) scale(1.05);
+    box-shadow: 0 0 30px rgba(34, 211, 238, 0.32);
+  }
+}
+
+@keyframes artifact-pact-faded {
+  to {
+    opacity: 0.34;
+    transform: translateX(16px) scale(0.94);
+    filter: grayscale(1);
+  }
+}
+
+@keyframes artifact-scale-balance {
+  0% {
+    transform: rotate(-8deg);
+  }
+  60% {
+    transform: rotate(5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes artifact-ripple {
+  from {
+    opacity: 0.6;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}
+
+@keyframes artifact-active-glow {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translateY(-18px);
+    opacity: 0.9;
+  }
+}
+
+@keyframes artifact-sun-card-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(250, 204, 21, 0);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(250, 204, 21, 0.2);
+  }
+}
+
+@keyframes artifact-shield-card-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(96, 165, 250, 0);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(96, 165, 250, 0.18);
+  }
+}
+
+@keyframes quest-sun-boost-flash {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.3) rotate(-20deg);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.12) rotate(6deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) scale(1.35) rotate(14deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .artifact-animation-shell {
+    min-height: 430px;
+    padding: 1rem;
+  }
+
+  .artifact-scene {
+    min-height: 200px;
+  }
+
+  .artifact-animation-card {
+    width: 140px;
+    height: 195px;
+  }
+
+  .artifact-death-scene,
+  .artifact-lovers-scene {
+    gap: 0.6rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artifact-animation-orbit,
+  .artifact-animation-shell,
+  .artifact-scene *,
+  .active-artifact-effect-card,
+  .active-artifact-effect-card::after,
+  .daily-quest-override-card::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

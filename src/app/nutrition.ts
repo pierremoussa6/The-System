@@ -24,6 +24,33 @@ function getActivityMultiplier(profile: UserProfile) {
   }
 }
 
+export type DietGoal = "weight_loss" | "weight_gain" | "maintenance";
+
+export function getDietGoal(profile: UserProfile): DietGoal {
+  const goalText = `${profile.dietStyle} ${profile.goal} ${profile.motivationWhy}`.toLowerCase();
+
+  if (
+    profile.dietStyle === "Weight-Loss" ||
+    goalText.includes("lose") ||
+    goalText.includes("fat loss") ||
+    goalText.includes("cut")
+  ) {
+    return "weight_loss";
+  }
+
+  if (
+    profile.dietStyle === "Muscle-Gain" ||
+    goalText.includes("gain weight") ||
+    goalText.includes("bulk") ||
+    goalText.includes("build muscle") ||
+    goalText.includes("muscle")
+  ) {
+    return "weight_gain";
+  }
+
+  return "maintenance";
+}
+
 export function getNutritionTargets(profile: UserProfile): NutritionTargets {
   const weightKg =
     typeof profile.weightKg === "number" && Number.isFinite(profile.weightKg)
@@ -40,15 +67,17 @@ export function getNutritionTargets(profile: UserProfile): NutritionTargets {
 
   const neutralBmr = 10 * weightKg + 6.25 * heightCm - 5 * age - 80;
   const maintenance = neutralBmr * getActivityMultiplier(profile);
+  const dietGoal = getDietGoal(profile);
   const calorieAdjustment =
-    profile.dietStyle === "Weight-Loss"
-      ? -350
-      : profile.dietStyle === "Muscle-Gain"
-      ? 250
-      : 0;
-  const calories = Math.max(1400, Math.round(maintenance + calorieAdjustment));
+    dietGoal === "weight_loss" ? -550 : dietGoal === "weight_gain" ? 350 : 0;
+  const calories = Math.max(
+    dietGoal === "weight_loss" ? 1250 : 1450,
+    Math.round(maintenance + calorieAdjustment)
+  );
   const proteinMultiplier =
-    profile.dietStyle === "High-Protein" || profile.dietStyle === "Muscle-Gain"
+    dietGoal === "weight_loss"
+      ? 1.9
+      : profile.dietStyle === "High-Protein" || dietGoal === "weight_gain"
       ? 1.8
       : 1.55;
   const protein = Math.round(weightKg * proteinMultiplier);
@@ -68,6 +97,35 @@ export function getNutritionTargets(profile: UserProfile): NutritionTargets {
     fiber,
     sugar,
     sodium,
+  };
+}
+
+export function getCalorieTargetRange(
+  targets: NutritionTargets,
+  profile: UserProfile
+) {
+  const dietGoal = getDietGoal(profile);
+
+  if (dietGoal === "weight_loss") {
+    return {
+      lower: Math.round(targets.calories * 0.92),
+      upper: Math.round(targets.calories * 1.03),
+      warningUpper: Math.round(targets.calories * 1.05),
+    };
+  }
+
+  if (dietGoal === "weight_gain") {
+    return {
+      lower: Math.round(targets.calories * 0.95),
+      upper: Math.round(targets.calories * 1.12),
+      warningUpper: Math.round(targets.calories * 1.18),
+    };
+  }
+
+  return {
+    lower: Math.round(targets.calories * 0.9),
+    upper: Math.round(targets.calories * 1.1),
+    warningUpper: Math.round(targets.calories * 1.14),
   };
 }
 
@@ -104,10 +162,8 @@ export function getLocalDietFeedback(
 ): DietFeedback {
   const messages: string[] = [];
   const suggestedMeals: string[] = [];
-  const calorieUpper =
-    profile.dietStyle === "Weight-Loss"
-      ? targets.calories * 1.05
-      : targets.calories * 1.12;
+  const dietGoal = getDietGoal(profile);
+  const calorieRange = getCalorieTargetRange(targets, profile);
 
   if (summary.protein < targets.protein * 0.85) {
     messages.push(
@@ -116,15 +172,19 @@ export function getLocalDietFeedback(
     suggestedMeals.push("Greek yogurt with berries, eggs, chicken, tofu, or tuna.");
   }
 
-  if (summary.calories > calorieUpper) {
+  if (summary.calories > calorieRange.warningUpper) {
     messages.push(
-      profile.dietStyle === "Weight-Loss"
-        ? "Calories ran high for a weight-loss target. Use smaller portions or swap one dense snack for fruit or vegetables."
-        : "Calories ran above target. Keep portions steadier tomorrow."
+      dietGoal === "weight_loss"
+        ? "Calories exceeded the stricter weight-loss range. Tomorrow, reduce dense snacks, use smaller carb/fat portions, and keep protein high."
+        : dietGoal === "weight_gain"
+        ? "Calories went above the surplus range. Keep the surplus controlled so the gain target stays cleaner."
+        : "Calories ran above maintenance target. Keep portions steadier tomorrow."
     );
-  } else if (summary.calories < targets.calories * 0.8) {
+  } else if (summary.calories < calorieRange.lower) {
     messages.push(
-      "Calories were low. If energy drops, add a simple meal with protein and carbs."
+      dietGoal === "weight_gain"
+        ? "Calories were too low for a weight-gain target. Add a simple protein-and-carb meal or shake tomorrow."
+        : "Calories were below the useful range. If energy drops, add a simple meal with protein and carbs."
     );
   }
 

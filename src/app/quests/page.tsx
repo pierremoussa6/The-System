@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "../store";
 import { calculateLevel } from "../logic";
 import type { AgilityActivityType, HouseholdTaskEntry } from "../types";
@@ -9,10 +9,17 @@ import {
   getHouseholdTaskDetails,
   getHouseholdTaskRewardText,
 } from "../task-system";
+import {
+  getActiveArtifactEffects,
+  getArtifactMeta,
+  getDailyQuestOverride,
+  isArtifactEffectActive,
+} from "../artifacts";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
 import ActionButton from "../components/ActionButton";
+import CollapsibleSection from "../components/CollapsibleSection";
 
 export default function QuestsPage() {
   const {
@@ -31,12 +38,14 @@ export default function QuestsPage() {
     dailyHp,
     updateDailyHp,
     householdTasks,
+    taskHistory,
     addHouseholdTask,
     completeHouseholdTask,
     deleteHouseholdTask,
     funSpecialActivities,
     generateFunSpecialActivity,
     completeFunSpecialActivity,
+    activeEffects,
   } = useApp();
   const [newChore, setNewChore] = useState("");
   const [newGrocery, setNewGrocery] = useState("");
@@ -46,6 +55,15 @@ export default function QuestsPage() {
     useState<AgilityActivityType>("Walk");
   const [newAgilityDistance, setNewAgilityDistance] = useState("");
   const [newAgilityDuration, setNewAgilityDuration] = useState("20");
+  const [sunBoostQuestId, setSunBoostQuestId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (sunBoostQuestId === null) return;
+
+    const timeout = window.setTimeout(() => setSunBoostQuestId(null), 1200);
+
+    return () => window.clearTimeout(timeout);
+  }, [sunBoostQuestId]);
 
   if (!isLoaded || !specialQuest || !profile) {
     return (
@@ -64,6 +82,18 @@ export default function QuestsPage() {
   const completedCount = quests.filter((quest) => quest.completed).length;
   const allCompleted = quests.length > 0 && quests.every((q) => q.completed);
   const recoveryModeActive = typeof dailyHp === "number" && dailyHp < 50;
+  const dailyQuestOverride = getDailyQuestOverride(activeEffects);
+  const dailyQuestsCancelled = dailyQuestOverride === "emperor_cancelled";
+  const questRelevantEffects = getActiveArtifactEffects(activeEffects).filter(
+    (effect) =>
+      effect.artifactId === "sun_radiance" ||
+      effect.artifactId === "judgement_shield" ||
+      effect.artifactId === "strength_lion_heart" ||
+      effect.artifactId === "hermit_lantern" ||
+      effect.artifactId === "devil_contract" ||
+      effect.artifactId === "world_completion"
+  );
+  const sunRadianceActive = isArtifactEffectActive(activeEffects, "sun_radiance");
 
   function getQuestRewardText(questId: number) {
     const quest = quests.find((q) => q.id === questId);
@@ -119,10 +149,22 @@ export default function QuestsPage() {
     setNewAgilityDuration(newAgilityType === "Run" ? "" : "20");
   }
 
-  const chores = householdTasks.filter((task) => task.kind === "chore");
-  const groceries = householdTasks.filter((task) => task.kind === "grocery");
-  const studyTasks = householdTasks.filter((task) => task.kind === "study");
-  const agilityTasks = householdTasks.filter((task) => task.kind === "agility");
+  function handleToggleQuest(questId: number) {
+    const quest = quests.find((item) => item.id === questId);
+    const willComplete = Boolean(quest && !quest.completed && !dailyQuestsCancelled);
+
+    toggleQuest(questId);
+
+    if (willComplete && sunRadianceActive) {
+      setSunBoostQuestId(questId);
+    }
+  }
+
+  const activeTasks = householdTasks.filter((task) => !task.completed);
+  const chores = activeTasks.filter((task) => task.kind === "chore");
+  const groceries = activeTasks.filter((task) => task.kind === "grocery");
+  const studyTasks = activeTasks.filter((task) => task.kind === "study");
+  const agilityTasks = activeTasks.filter((task) => task.kind === "agility");
   const studyDuration = Number(newStudyDuration);
   const agilityDistance = Number(newAgilityDistance);
   const agilityDuration = Number(newAgilityDuration);
@@ -403,18 +445,70 @@ export default function QuestsPage() {
         )}
       </PanelCard>
 
-      <PanelCard>
+      {(dailyQuestOverride || questRelevantEffects.length > 0) && (
+        <PanelCard className="border-yellow-500">
+          <SectionTitle title="Active Artifact Effects" colorClass="text-yellow-400" />
+          <div className="grid gap-3 md:grid-cols-2">
+            {dailyQuestOverride && (
+              <div
+                className="daily-quest-override-card rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4"
+                data-override={dailyQuestOverride}
+              >
+                <p className="font-medium text-yellow-100">
+                  {dailyQuestOverride === "emperor_cancelled"
+                    ? "The Emperor's Law"
+                    : "The Hanged Man's Rope"}
+                </p>
+                <p className="mt-1 text-sm text-zinc-300">
+                  {dailyQuestOverride === "emperor_cancelled"
+                    ? "Today's daily quests are cancelled. No rewards can be claimed from them."
+                    : "Today's streak is paused. The day is protected, but the pause is visible."}
+                </p>
+              </div>
+            )}
+
+            {questRelevantEffects.map((effect) => {
+              const meta = getArtifactMeta(effect.artifactId);
+
+              return (
+                <div
+                  key={effect.id}
+                  className="active-artifact-effect-card rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4"
+                  data-artifact={effect.artifactId}
+                >
+                  <p className="font-medium text-yellow-100">{meta.title}</p>
+                  <p className="mt-1 text-sm text-zinc-300">{meta.effectLabel}</p>
+                </div>
+              );
+            })}
+          </div>
+        </PanelCard>
+      )}
+
+      <PanelCard
+        className={dailyQuestOverride ? "daily-quest-override-card border-yellow-500" : ""}
+        dataOverride={dailyQuestOverride ?? undefined}
+      >
         <SectionTitle title="Daily Quests" />
+
+        {dailyQuestsCancelled && (
+          <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+            Quests cancelled by order of the Emperor. This does not grant daily quest rewards.
+          </p>
+        )}
 
         <div className="space-y-4">
           {quests.map((quest) => (
             <button
               key={quest.id}
-              onClick={() => toggleQuest(quest.id)}
+              onClick={() => handleToggleQuest(quest.id)}
+              disabled={dailyQuestsCancelled}
               className={`w-full text-left p-4 rounded transition border ${
                 quest.completed
                   ? "bg-green-900/40 border-green-500"
                   : "bg-zinc-800 border-zinc-700 hover:border-blue-400"
+              } ${dailyQuestsCancelled ? "cursor-not-allowed opacity-50" : ""} ${
+                sunBoostQuestId === quest.id ? "quest-sun-boost" : ""
               }`}
             >
               <div className="flex items-center justify-between">
@@ -555,6 +649,60 @@ export default function QuestsPage() {
             )}
           </div>
         </div>
+      </PanelCard>
+
+      <PanelCard className="border-zinc-600">
+        <CollapsibleSection
+          title="Task History"
+          defaultOpen={false}
+          headerClassName="text-xl font-semibold text-zinc-100"
+          rightSlot={<span>{taskHistory.length} completed</span>}
+        >
+          {taskHistory.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {(["chore", "grocery", "study", "agility"] as const).map((kind) => {
+                const entries = taskHistory.filter((entry) => entry.kind === kind);
+
+                return (
+                  <div key={kind} className="space-y-3">
+                    <p className="font-medium text-white capitalize">{kind}</p>
+                    {entries.length > 0 ? (
+                      entries.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="rounded-lg border border-zinc-700 bg-zinc-800 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-white">{entry.title}</p>
+                              <p className="text-sm text-zinc-400">{entry.completedAt}</p>
+                              <p className="text-sm text-zinc-400">{entry.details}</p>
+                            </div>
+                            <span className="rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-xs text-zinc-300">
+                              {entry.kind}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-emerald-300">
+                            {formatRewardText({
+                              xp: entry.xp,
+                              statRewards: entry.statRewards,
+                            })}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-lg border border-zinc-700 bg-zinc-800 p-4 text-sm text-zinc-400">
+                        No completed {kind} tasks yet.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-zinc-400">No completed task history yet.</p>
+          )}
+        </CollapsibleSection>
       </PanelCard>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

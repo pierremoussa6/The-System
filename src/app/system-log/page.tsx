@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "../store";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
@@ -8,6 +8,7 @@ import type { LogEntryType } from "../types";
 
 export default function SystemLogPage() {
   const { isLoaded, log } = useApp();
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const grouped = useMemo(() => {
     return {
@@ -105,7 +106,16 @@ export default function SystemLogPage() {
     }
   }
 
-  function renderEntries(title: string, colorClass: string, entries: typeof log) {
+  function renderEntries(
+    key: string,
+    title: string,
+    colorClass: string,
+    entries: typeof log,
+    defaultLimit = 5
+  ) {
+    const expanded = Boolean(expandedGroups[key]);
+    const visibleEntries = expanded ? entries : entries.slice(0, defaultLimit);
+
     return (
       <PanelCard className={colorClass}>
         <SectionTitle title={title} colorClass={colorClass.replace("border-", "text-")} />
@@ -113,7 +123,7 @@ export default function SystemLogPage() {
           <p className="text-zinc-400">No entries in this category yet.</p>
         ) : (
           <div className="space-y-4">
-            {entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <div
                 key={entry.id}
                 className={`rounded-xl border bg-zinc-900 p-5 ${getTypeColor(
@@ -129,6 +139,20 @@ export default function SystemLogPage() {
                 <p className="mt-1 text-zinc-300">{entry.details}</p>
               </div>
             ))}
+            {entries.length > defaultLimit && (
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedGroups((current) => ({
+                    ...current,
+                    [key]: !expanded,
+                  }))
+                }
+                className="rounded border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:border-blue-400"
+              >
+                {expanded ? "Show less" : `Show all ${entries.length} entries`}
+              </button>
+            )}
           </div>
         )}
       </PanelCard>
@@ -145,9 +169,9 @@ export default function SystemLogPage() {
         </PanelCard>
       ) : (
         <>
-          {renderEntries("System Decisions", "border-sky-500", grouped.system)}
-          {renderEntries("Mission Activity", "border-purple-500", grouped.mission)}
-          {renderEntries("Penalty Records", "border-red-500", grouped.penalty)}
+          {renderEntries("system", "System Decisions", "border-sky-500", grouped.system)}
+          {renderEntries("mission", "Mission Activity", "border-purple-500", grouped.mission)}
+          {renderEntries("penalty", "Penalty Records", "border-red-500", grouped.penalty)}
         </>
       )}
     </div>

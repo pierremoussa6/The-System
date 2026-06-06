@@ -16,6 +16,7 @@ import {
   getRecentUnlockedAchievements,
   getAchievementTierClasses,
 } from "./achievements";
+import { getActiveArtifactEffects, getArtifactMeta } from "./artifacts";
 import PanelCard from "./components/PanelCard";
 import SectionTitle from "./components/SectionTitle";
 import ActionButton from "./components/ActionButton";
@@ -85,8 +86,10 @@ export default function HomePage() {
     0
   );
 
-  const today = new Date().toISOString().split("T")[0];
-  const activeRune = activeEffects.doubleDailyXpDate === today;
+  const activeArtifactEffects = getActiveArtifactEffects(activeEffects);
+  const primaryActiveArtifact = activeArtifactEffects[0]
+    ? getArtifactMeta(activeArtifactEffects[0].artifactId)
+    : null;
 
   const mainRecommendation = aiWeeklyPlan
     ? aiWeeklyPlan.weekObjective
@@ -424,8 +427,8 @@ export default function HomePage() {
                   Active Effect
                 </p>
                 <p className="mt-2 text-zinc-200">
-                  {activeRune
-                    ? "XP Rune is active today"
+                  {primaryActiveArtifact
+                    ? `${primaryActiveArtifact.title}: ${primaryActiveArtifact.effectLabel}`
                     : "No artifact effect currently active"}
                 </p>
               </div>

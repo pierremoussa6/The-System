@@ -492,7 +492,11 @@ export default function UsersPage() {
     );
     const nextState: UserRecord = {
       ...appState,
-      quests: createDailyQuests(appState.profile, getTodayString()),
+      quests: createDailyQuests(
+        appState.profile,
+        getTodayString(),
+        appState.workoutProgram
+      ),
       specialQuest: nextSpecialQuest,
       specialQuestMemory: appendSpecialQuestMemory(
         specialQuestMemory,

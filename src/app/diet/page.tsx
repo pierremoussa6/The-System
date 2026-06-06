@@ -15,11 +15,17 @@ import {
 import { useApp } from "../store";
 import { getPersonalization } from "../quest-engine";
 import {
+  getCalorieTargetRange,
   getLocalDietFeedback,
   getNutritionSummary,
   getNutritionTargets,
 } from "../nutrition";
-import type { DietFeedback, FoodJournalEntry, NutritionTargets } from "../types";
+import type {
+  DietFeedback,
+  FoodJournalEntry,
+  NutritionTargets,
+  UserProfile,
+} from "../types";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import ActionButton from "../components/ActionButton";
@@ -60,11 +66,11 @@ function getStatusColor(
   metric: keyof NutritionTargets,
   consumed: number,
   target: number,
-  dietStyle: string
+  targets: NutritionTargets,
+  profile: UserProfile
 ) {
   if (metric === "calories") {
-    const lower = target * 0.85;
-    const upper = dietStyle === "Weight-Loss" ? target * 1.05 : target * 1.12;
+    const { lower, upper } = getCalorieTargetRange(targets, profile);
     return consumed >= lower && consumed <= upper ? "#22c55e" : "#ef4444";
   }
 
@@ -126,6 +132,7 @@ export default function DietPage() {
     ? getPersonalization(aiAnalysis, profile)
     : null;
   const targets = getNutritionTargets(profile);
+  const calorieRange = getCalorieTargetRange(targets, profile);
   const todaysEntries = foodJournal.filter((entry) => entry.date === selectedDate);
   const summary = getNutritionSummary(todaysEntries);
   const previousDate = offsetDateString(selectedDate, -1);
@@ -314,7 +321,8 @@ export default function DietPage() {
                       item.key,
                       item.consumed,
                       item.target,
-                      profile.dietStyle
+                      targets,
+                      profile
                     )}
                   />
                 ))}
@@ -403,6 +411,7 @@ export default function DietPage() {
           <p><span className="text-zinc-400">Body Data:</span> <span className="text-white">{profile.age} years · {profile.weightKg} kg · {profile.heightCm} cm · {profile.activityLevel} activity</span></p>
           <p><span className="text-zinc-400">Dietary Restrictions:</span> <span className="text-white">{profile.dietaryRestrictions || "None specified"}</span></p>
           <p><span className="text-zinc-400">Targets:</span> <span className="text-white">{targets.calories} kcal, {targets.protein}g protein, {targets.carbs}g carbs, {targets.fat}g fat</span></p>
+          <p><span className="text-zinc-400">Calorie target range:</span> <span className="text-white">{calorieRange.lower}-{calorieRange.upper} kcal</span></p>
         </div>
       </PanelCard>
 

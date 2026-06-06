@@ -3,6 +3,7 @@ import type {
   HouseholdTaskEntry,
   HouseholdTaskInput,
   HouseholdTaskKind,
+  TaskHistoryEntry,
 } from "./types";
 import type { RewardBundle } from "./reward-system";
 import { formatRewardText } from "./reward-system";
@@ -128,7 +129,7 @@ export function getHouseholdTaskReward(task: HouseholdTaskEntry): RewardBundle {
   }
 
   if (task.kind === "grocery") {
-    return { xp: 8, statRewards: { discipline: 1, vitality: 1 } };
+    return { xp: 5, statRewards: {} };
   }
 
   if (task.kind === "study") {
@@ -171,4 +172,65 @@ export function getHouseholdTaskDetails(task: HouseholdTaskEntry) {
   }
 
   return taskKindLabels[task.kind];
+}
+
+export function createTaskHistoryEntry(
+  task: HouseholdTaskEntry,
+  reward: RewardBundle,
+  completedAt: string
+): TaskHistoryEntry {
+  return {
+    id: `${task.id}-${completedAt}`,
+    taskId: task.id,
+    title: task.title,
+    kind: task.kind,
+    xp: reward.xp,
+    statRewards: reward.statRewards,
+    completedAt,
+    source: task.kind,
+    details: getHouseholdTaskDetails(task),
+  };
+}
+
+export function normalizeTaskHistory(
+  entries: TaskHistoryEntry[] | undefined
+): TaskHistoryEntry[] {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => {
+      const kind = validTaskKinds.includes(entry.kind)
+        ? entry.kind
+        : ("chore" as const);
+
+      return {
+        id:
+          typeof entry.id === "string" && entry.id.trim()
+            ? entry.id
+            : `${entry.taskId ?? "task"}-${entry.completedAt ?? Date.now()}`,
+        taskId:
+          typeof entry.taskId === "string" && entry.taskId.trim()
+            ? entry.taskId
+            : "",
+        title: typeof entry.title === "string" ? entry.title.trim() : "",
+        kind,
+        xp:
+          typeof entry.xp === "number" && Number.isFinite(entry.xp)
+            ? Math.max(0, Math.round(entry.xp))
+            : 0,
+        statRewards:
+          entry.statRewards && typeof entry.statRewards === "object"
+            ? entry.statRewards
+            : {},
+        completedAt:
+          typeof entry.completedAt === "string" && entry.completedAt.trim()
+            ? entry.completedAt
+            : new Date().toLocaleString(),
+        source: validTaskKinds.includes(entry.source) ? entry.source : kind,
+        details: typeof entry.details === "string" ? entry.details.trim() : "",
+      };
+    })
+    .filter((entry) => entry.title)
+    .slice(0, 300);
 }

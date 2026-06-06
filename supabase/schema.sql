@@ -19,6 +19,8 @@ check (account_status in ('pending_approval', 'approved', 'rejected'));
 create table if not exists public.user_state (
   user_id uuid primary key references public.profiles(id) on delete cascade,
   total_xp integer not null default 0,
+  lifetime_xp integer not null default 0,
+  spendable_xp integer not null default 0,
   streak integer not null default 0,
   last_completion_date date,
   strength integer not null default 0,
@@ -32,14 +34,32 @@ create table if not exists public.user_state (
   daily_hp_date date,
   ai_analysis_json jsonb,
   ai_weekly_plan_json jsonb,
+  workout_program_json jsonb,
   ai_quest_index integer not null default 0,
   active_effects_json jsonb not null default '{}'::jsonb,
+  task_history_json jsonb not null default '[]'::jsonb,
+  artifact_history_json jsonb not null default '[]'::jsonb,
   app_state_json jsonb,
   updated_at timestamptz not null default now()
 );
 
 alter table public.user_state
 add column if not exists app_state_json jsonb;
+
+alter table public.user_state
+add column if not exists lifetime_xp integer not null default 0;
+
+alter table public.user_state
+add column if not exists spendable_xp integer not null default 0;
+
+alter table public.user_state
+add column if not exists workout_program_json jsonb;
+
+alter table public.user_state
+add column if not exists task_history_json jsonb not null default '[]'::jsonb;
+
+alter table public.user_state
+add column if not exists artifact_history_json jsonb not null default '[]'::jsonb;
 
 alter table public.user_state
 add column if not exists intelligence integer not null default 0;
@@ -99,6 +119,63 @@ create table if not exists public.artifacts (
   quantity integer not null default 0,
   updated_at timestamptz not null default now(),
   unique (user_id, artifact_key)
+);
+
+create table if not exists public.artifact_inventory (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  artifact_id text not null,
+  quantity integer not null default 0,
+  owned boolean not null default false,
+  active boolean not null default false,
+  acquired_at timestamptz,
+  last_used_at timestamptz,
+  source text not null default 'achievement',
+  status text not null default 'locked',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, artifact_id)
+);
+
+create table if not exists public.active_artifact_effects (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  artifact_id text not null,
+  effect_type text not null,
+  status text not null default 'active',
+  starts_at timestamptz not null default now(),
+  expires_at timestamptz,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.artifact_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  artifact_id text not null,
+  artifact_name text not null,
+  event_type text not null,
+  xp_change integer,
+  stat_change_json jsonb,
+  streak_effect text,
+  task_id text,
+  details text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.task_history (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  task_id text not null,
+  task_type text not null,
+  title text not null,
+  xp integer not null default 0,
+  stat_rewards_json jsonb not null default '{}'::jsonb,
+  category_source text not null,
+  completed_at timestamptz not null default now(),
+  unique (user_id, task_id)
 );
 
 create table if not exists public.system_logs (
@@ -265,6 +342,10 @@ alter table public.daily_quests enable row level security;
 alter table public.special_quests enable row level security;
 alter table public.weekly_plans enable row level security;
 alter table public.artifacts enable row level security;
+alter table public.artifact_inventory enable row level security;
+alter table public.active_artifact_effects enable row level security;
+alter table public.artifact_events enable row level security;
+alter table public.task_history enable row level security;
 alter table public.system_logs enable row level security;
 alter table public.achievements enable row level security;
 alter table public.reminder_logs enable row level security;
@@ -278,6 +359,10 @@ drop policy if exists "daily_quests_own_or_creator" on public.daily_quests;
 drop policy if exists "special_quests_own_or_creator" on public.special_quests;
 drop policy if exists "weekly_plans_own_or_creator" on public.weekly_plans;
 drop policy if exists "artifacts_own_or_creator" on public.artifacts;
+drop policy if exists "artifact_inventory_own_or_creator" on public.artifact_inventory;
+drop policy if exists "active_artifact_effects_own_or_creator" on public.active_artifact_effects;
+drop policy if exists "artifact_events_own_or_creator" on public.artifact_events;
+drop policy if exists "task_history_own_or_creator" on public.task_history;
 drop policy if exists "system_logs_own_or_creator" on public.system_logs;
 drop policy if exists "achievements_own_or_creator" on public.achievements;
 drop policy if exists "reminder_logs_own_or_creator" on public.reminder_logs;
@@ -321,6 +406,26 @@ on public.artifacts for all
 using (auth.uid() = user_id or public.is_creator())
 with check (auth.uid() = user_id or public.is_creator());
 
+create policy "artifact_inventory_own_or_creator"
+on public.artifact_inventory for all
+using (auth.uid() = user_id or public.is_creator())
+with check (auth.uid() = user_id or public.is_creator());
+
+create policy "active_artifact_effects_own_or_creator"
+on public.active_artifact_effects for all
+using (auth.uid() = user_id or public.is_creator())
+with check (auth.uid() = user_id or public.is_creator());
+
+create policy "artifact_events_own_or_creator"
+on public.artifact_events for all
+using (auth.uid() = user_id or public.is_creator())
+with check (auth.uid() = user_id or public.is_creator());
+
+create policy "task_history_own_or_creator"
+on public.task_history for all
+using (auth.uid() = user_id or public.is_creator())
+with check (auth.uid() = user_id or public.is_creator());
+
 create policy "system_logs_own_or_creator"
 on public.system_logs for all
 using (auth.uid() = user_id or public.is_creator())
@@ -354,3 +459,13 @@ where account_status is null
     from public.user_state
     where public.user_state.user_id = public.profiles.id
    );
+
+update public.user_state
+set lifetime_xp = total_xp
+where lifetime_xp = 0
+  and total_xp > 0;
+
+update public.user_state
+set spendable_xp = total_xp
+where spendable_xp = 0
+  and total_xp > 0;
