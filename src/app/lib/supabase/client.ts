@@ -1,46 +1,59 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  safeClearStorage,
+  safeGetStorageItem,
+  safeRemoveStorageItem,
+  safeSetStorageItem,
+  safeStorageKey,
+  safeStorageLength,
+} from "../browser-storage";
 
 let browserClient: SupabaseClient | null = null;
 
 const persistenceKey = "the-system-auth-persistence";
+
+function getPreferredAuthStorageArea() {
+  const preference =
+    safeGetStorageItem("local", persistenceKey) ??
+    safeGetStorageItem("session", persistenceKey);
+
+  return preference === "session" ? "session" : "local";
+}
 
 function getAuthStorage(): Storage | undefined {
   if (typeof window === "undefined") return undefined;
 
   return {
     get length() {
-      return window.localStorage.length + window.sessionStorage.length;
+      return safeStorageLength("local") + safeStorageLength("session");
     },
     clear() {
-      window.localStorage.clear();
-      window.sessionStorage.clear();
+      safeClearStorage("local");
+      safeClearStorage("session");
     },
     key(index: number) {
-      return window.localStorage.key(index) ?? window.sessionStorage.key(index);
+      return safeStorageKey("local", index) ?? safeStorageKey("session", index);
     },
     getItem(key: string) {
       return (
-        window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key)
+        safeGetStorageItem("local", key) ?? safeGetStorageItem("session", key)
       );
     },
     setItem(key: string, value: string) {
-      const target =
-        window.localStorage.getItem(persistenceKey) === "session"
-          ? window.sessionStorage
-          : window.localStorage;
-      const other =
-        target === window.localStorage
-          ? window.sessionStorage
-          : window.localStorage;
+      const target = getPreferredAuthStorageArea();
+      const other = target === "local" ? "session" : "local";
 
-      other.removeItem(key);
-      target.setItem(key, value);
+      safeRemoveStorageItem(other, key);
+
+      if (!safeSetStorageItem(target, key, value)) {
+        safeSetStorageItem(other, key, value);
+      }
     },
     removeItem(key: string) {
-      window.localStorage.removeItem(key);
-      window.sessionStorage.removeItem(key);
+      safeRemoveStorageItem("local", key);
+      safeRemoveStorageItem("session", key);
     },
   };
 }

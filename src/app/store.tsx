@@ -93,6 +93,11 @@ import {
   sanitizeWorkoutProgramForProfile,
 } from "./workout-system";
 import { normalizeCreatorMediaLibrary } from "./creator-media";
+import {
+  safeGetStorageItem,
+  safeRemoveStorageItem,
+  safeSetStorageItem,
+} from "./lib/browser-storage";
 
 const STORAGE_KEY = "the-system-multi-user-data";
 const SAVE_DELAY_MS = 600;
@@ -144,7 +149,7 @@ function loadInitialMultiUserData(): MultiUserData {
     return createDefaultMultiUserData();
   }
 
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = safeGetStorageItem("local", STORAGE_KEY);
 
   if (!saved) {
     return createDefaultMultiUserData();
@@ -173,7 +178,16 @@ function loadInitialMultiUserData(): MultiUserData {
       activeUserId,
     };
   } catch {
+    safeRemoveStorageItem("local", STORAGE_KEY);
     return createDefaultMultiUserData();
+  }
+}
+
+function saveLocalMultiUserData(data: MultiUserData) {
+  try {
+    safeSetStorageItem("local", STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // If serialization fails, keep the app usable and let remote state handle sync.
   }
 }
 
@@ -565,7 +579,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!clientReady) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    saveLocalMultiUserData(data);
   }, [clientReady, data]);
 
   useEffect(() => {
@@ -718,7 +732,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (clientReady && nextDataToPersist) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextDataToPersist));
+        saveLocalMultiUserData(nextDataToPersist);
       }
 
       if (

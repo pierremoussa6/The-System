@@ -13,6 +13,7 @@ import {
   getSupabaseBrowserClient,
   hasSupabaseConfig,
 } from "./lib/supabase/client";
+import { safeRemoveStorageItem, safeSetStorageItem } from "./lib/browser-storage";
 
 export type AppRole = "creator" | "admin" | "player";
 export type AccountStatus = "pending_approval" | "approved" | "rejected" | "blocked";
@@ -44,6 +45,24 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const AUTH_STARTUP_TIMEOUT_MS = 8000;
+
+function getAuthErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
 
 function getFallbackDisplayName(user: User) {
   return (
@@ -179,24 +198,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const supabaseClient = supabase;
     let isMounted = true;
 
-    supabase.auth.getSession().then(async ({ data, error: sessionError }) => {
-      if (!isMounted) return;
+    async function initializeSession() {
+      try {
+        const { data, error: sessionError } = await withTimeout(
+          supabaseClient.auth.getSession(),
+          AUTH_STARTUP_TIMEOUT_MS,
+          "Timed out while checking your saved session."
+        );
 
-      if (sessionError) {
-        setError(sessionError.message);
+        if (!isMounted) return;
+
+        if (sessionError) {
+          setError(sessionError.message);
+        }
+
+        const nextSession = data.session;
+        setSession(nextSession);
+
+        if (!nextSession) {
+          setProfile(null);
+          setStatus("anonymous");
+          return;
+        }
+
+        setProfile(normalizeProfile(nextSession.user, null));
+        setStatus("authenticated");
+
+        try {
+          await withTimeout(
+            loadProfile(nextSession.user),
+            AUTH_STARTUP_TIMEOUT_MS,
+            "Timed out while loading your profile."
+          );
+        } catch (profileError) {
+          if (!isMounted) return;
+          setError(
+            getAuthErrorMessage(
+              profileError,
+              "The System could not load your profile."
+            )
+          );
+        }
+      } catch (sessionError) {
+        if (!isMounted) return;
+
+        setError(
+          getAuthErrorMessage(
+            sessionError,
+            "The System could not check your saved session."
+          )
+        );
+        setSession(null);
+        setProfile(null);
+        setStatus("anonymous");
       }
+    }
 
-      const nextSession = data.session;
-      setSession(nextSession);
-      await loadProfile(nextSession?.user ?? null);
-      setStatus(nextSession ? "authenticated" : "anonymous");
-    });
+    void initializeSession();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabaseClient.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setStatus(nextSession ? "authenticated" : "anonymous");
       void loadProfile(nextSession?.user ?? null);
@@ -214,10 +279,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setError(null);
     if (typeof window !== "undefined") {
-      localStorage.setItem(
-        "the-system-auth-persistence",
-        rememberMe ? "local" : "session"
-      );
+      const storagePreference = rememberMe ? "local" : "session";
+
+      if (
+        !safeSetStorageItem(
+          "local",
+          "the-system-auth-persistence",
+          storagePreference
+        )
+      ) {
+        safeSetStorageItem(
+          "session",
+          "the-system-auth-persistence",
+          storagePreference
+        );
+      }
     }
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
@@ -276,7 +352,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(null);
     setStatus("anonymous");
     if (typeof window !== "undefined") {
-      localStorage.removeItem("the-system-auth-persistence");
+      safeRemoveStorageItem("local", "the-system-auth-persistence");
+      safeRemoveStorageItem("session", "the-system-auth-persistence");
     }
   }, []);
 
