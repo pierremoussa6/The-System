@@ -16,11 +16,17 @@ import {
   getRecentUnlockedAchievements,
   getAchievementTierClasses,
 } from "./achievements";
-import { getActiveArtifactEffects, getArtifactMeta } from "./artifacts";
+import {
+  getActiveArtifactEffects,
+  getArtifactMeta,
+  getWorldChallengeSummary,
+} from "./artifacts";
+import { getMediaForTarget } from "./creator-media";
 import PanelCard from "./components/PanelCard";
 import SectionTitle from "./components/SectionTitle";
 import ActionButton from "./components/ActionButton";
 import StatCard from "./components/StatCard";
+import CreatorMediaBanner from "./components/CreatorMediaBanner";
 
 export default function HomePage() {
   const {
@@ -37,6 +43,7 @@ export default function HomePage() {
     artifacts,
     activeEffects,
     dailyHp,
+    mediaLibrary,
   } = useApp();
 
   const achievementSummary = useMemo(() => {
@@ -90,6 +97,10 @@ export default function HomePage() {
   const primaryActiveArtifact = activeArtifactEffects[0]
     ? getArtifactMeta(activeArtifactEffects[0].artifactId)
     : null;
+  const worldEffect = activeArtifactEffects.find(
+    (effect) => effect.artifactId === "world_completion"
+  );
+  const worldSummary = worldEffect ? getWorldChallengeSummary(worldEffect) : null;
 
   const mainRecommendation = aiWeeklyPlan
     ? aiWeeklyPlan.weekObjective
@@ -104,9 +115,17 @@ export default function HomePage() {
     : "No system analysis has been generated yet.";
   const personalization = aiAnalysis ? getPersonalization(aiAnalysis, profile) : null;
   const recoveryModeActive = typeof dailyHp === "number" && dailyHp < 50;
+  const dashboardBanner = getMediaForTarget(
+    mediaLibrary,
+    "dashboard_banner",
+    "default",
+    activeUser.id
+  );
 
   return (
     <main className="space-y-6">
+      <CreatorMediaBanner media={dashboardBanner} />
+
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-blue-400">The System</h1>
@@ -431,6 +450,11 @@ export default function HomePage() {
                     ? `${primaryActiveArtifact.title}: ${primaryActiveArtifact.effectLabel}`
                     : "No artifact effect currently active"}
                 </p>
+                {worldSummary && (
+                  <p className="mt-2 text-sm text-emerald-300">
+                    The World: {worldSummary.currentProgress}/{worldSummary.requiredProgress} streak days counted
+                  </p>
+                )}
               </div>
 
               <Link href="/artifacts">

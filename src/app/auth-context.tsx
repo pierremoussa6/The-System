@@ -14,8 +14,8 @@ import {
   hasSupabaseConfig,
 } from "./lib/supabase/client";
 
-export type AppRole = "creator" | "player";
-export type AccountStatus = "pending_approval" | "approved" | "rejected";
+export type AppRole = "creator" | "admin" | "player";
+export type AccountStatus = "pending_approval" | "approved" | "rejected" | "blocked";
 
 export type AuthProfile = {
   id: string;
@@ -60,7 +60,10 @@ function getDefaultAccountStatus(user: User): AccountStatus {
 }
 
 function normalizeProfile(user: User, profile: Partial<AuthProfile> | null): AuthProfile {
-  const role = profile?.role === "creator" ? "creator" : "player";
+  const role =
+    profile?.role === "creator" || profile?.role === "admin"
+      ? profile.role
+      : "player";
 
   return {
     id: user.id,
@@ -68,10 +71,11 @@ function normalizeProfile(user: User, profile: Partial<AuthProfile> | null): Aut
     display_name: profile?.display_name ?? getFallbackDisplayName(user),
     role,
     account_status:
-      role === "creator"
+      role === "creator" || role === "admin"
         ? "approved"
         : profile?.account_status === "pending_approval" ||
           profile?.account_status === "rejected" ||
+          profile?.account_status === "blocked" ||
           profile?.account_status === "approved"
         ? profile.account_status
         : "approved",
@@ -286,10 +290,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       user,
       profile,
-      isCreator: profile?.role === "creator",
+      isCreator: profile?.role === "creator" || profile?.role === "admin",
       isApproved:
         status === "unconfigured" ||
         profile?.role === "creator" ||
+        profile?.role === "admin" ||
         profile?.account_status === "approved",
       error,
       signIn,

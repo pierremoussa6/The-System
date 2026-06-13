@@ -1197,6 +1197,164 @@ export function createActiveArtifactEffect(
   };
 }
 
+export function createWorldCompletionMetadata(input: {
+  startStreak: number;
+  targetCompletionDate: string;
+}) {
+  return {
+    requiredProgress: 30,
+    currentProgress: 0,
+    streakDaysCounted: 0,
+    startStreak: Math.max(0, Math.round(input.startStreak)),
+    lastProgressUpdateDate: null,
+    targetCompletionDate: input.targetCompletionDate,
+    completionReason: null,
+    failureReason: null,
+  };
+}
+
+function getMetadataNumber(
+  metadata: Record<string, unknown>,
+  key: string,
+  fallback: number
+) {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : fallback;
+}
+
+function getMetadataString(
+  metadata: Record<string, unknown>,
+  key: string
+) {
+  const value = metadata[key];
+  return typeof value === "string" ? value : null;
+}
+
+export function getWorldChallengeSummary(effect: ActiveArtifactEffect) {
+  const requiredProgress = getMetadataNumber(
+    effect.metadata,
+    "requiredProgress",
+    30
+  );
+  const currentProgress = Math.max(
+    0,
+    Math.min(
+      requiredProgress,
+      getMetadataNumber(effect.metadata, "currentProgress", 0)
+    )
+  );
+
+  return {
+    currentProgress,
+    requiredProgress,
+    streakDaysCounted: getMetadataNumber(
+      effect.metadata,
+      "streakDaysCounted",
+      currentProgress
+    ),
+    lastProgressUpdateDate: getMetadataString(
+      effect.metadata,
+      "lastProgressUpdateDate"
+    ),
+    targetCompletionDate:
+      getMetadataString(effect.metadata, "targetCompletionDate") ??
+      effect.expiresAt,
+    completionReason: getMetadataString(effect.metadata, "completionReason"),
+    failureReason: getMetadataString(effect.metadata, "failureReason"),
+  };
+}
+
+export function updateWorldChallengeProgress(input: {
+  effects: ActiveEffects;
+  nextStreak: number;
+  dateString?: string;
+}) {
+  const dateString = input.dateString ?? getTodayString();
+  const effects = normalizeActiveEffects(input.effects);
+  let changed = false;
+  let completed = false;
+  const logMessages: string[] = [];
+
+  const artifactEffects = effects.artifactEffects.map((effect) => {
+    if (effect.artifactId !== "world_completion" || effect.status !== "active") {
+      return effect;
+    }
+
+    const summary = getWorldChallengeSummary(effect);
+    if (summary.lastProgressUpdateDate === dateString) {
+      return effect;
+    }
+
+    const startStreak = getMetadataNumber(
+      effect.metadata,
+      "startStreak",
+      Math.max(0, input.nextStreak - summary.currentProgress)
+    );
+    const nextProgress = Math.max(
+      summary.currentProgress,
+      Math.min(summary.requiredProgress, Math.max(0, input.nextStreak - startStreak))
+    );
+
+    if (nextProgress === summary.currentProgress) {
+      return effect;
+    }
+
+    changed = true;
+    const reachedMilestone =
+      nextProgress === 7 ||
+      nextProgress === 14 ||
+      nextProgress === 21 ||
+      nextProgress >= summary.requiredProgress;
+
+    if (reachedMilestone && nextProgress < summary.requiredProgress) {
+      logMessages.push(
+        `The World's Completion progressed to day ${nextProgress}/${summary.requiredProgress}.`
+      );
+    }
+
+    if (nextProgress >= summary.requiredProgress) {
+      completed = true;
+      logMessages.push(
+        "The World cycle is complete. 30-day challenge finished."
+      );
+    }
+
+    return {
+      ...effect,
+      status: completed ? ("completed" as const) : effect.status,
+      metadata: {
+        ...effect.metadata,
+        requiredProgress: summary.requiredProgress,
+        currentProgress: nextProgress,
+        streakDaysCounted: nextProgress,
+        lastProgressUpdateDate: dateString,
+        completionReason: completed
+          ? "Maintained streak through the 30-day World challenge."
+          : effect.metadata.completionReason ?? null,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  return {
+    activeEffects: {
+      ...effects,
+      artifactEffects,
+    },
+    changed,
+    completed,
+    logMessages,
+    reward: completed
+      ? {
+          xp: 3000,
+          statRewards: {},
+        }
+      : null,
+  };
+}
+
 export function getNextRankUpRequirements(user: UserRecord) {
   const currentRank = getSystemRank(user.totalXp, user.stats);
   const nextRank = getNextRank(currentRank);

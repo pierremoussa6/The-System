@@ -308,6 +308,56 @@ export type ActiveEffects = {
   magicianDoubleCastDate: string | null;
 };
 
+export type CreatorMediaScope = "global" | "user" | "fallback";
+
+export type CreatorMediaTargetType =
+  | "dashboard_banner"
+  | "quest_banner"
+  | "special_quest"
+  | "fun_activity"
+  | "artifact_card"
+  | "artifact_icon"
+  | "artifact_activation"
+  | "artifact_reward"
+  | "artifact_background"
+  | "workout_banner"
+  | "workout_phase"
+  | "exercise_media"
+  | "diet_banner"
+  | "meal_suggestion"
+  | "progress_banner"
+  | "rank_icon"
+  | "level_icon"
+  | "build_icon"
+  | "system_log_icon"
+  | "profile_avatar"
+  | "motivational_media";
+
+export type CreatorMediaItem = {
+  id: string;
+  uploadedBy: string;
+  targetType: CreatorMediaTargetType;
+  targetId: string;
+  scope: CreatorMediaScope;
+  userId: string | null;
+  fileUrl: string;
+  fileType: string;
+  altText: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreatorAuditEntry = {
+  id: string;
+  creatorId: string;
+  affectedUserId: string | null;
+  fieldChanged: string;
+  oldValue: string;
+  newValue: string;
+  timestamp: string;
+};
+
 export type InterestCategory =
   | "engineering"
   | "programming"
@@ -574,6 +624,8 @@ export type UserRecord = {
   artifacts: Artifact[];
   activeEffects: ActiveEffects;
   artifactHistory?: ArtifactHistoryEntry[];
+  mediaLibrary?: CreatorMediaItem[];
+  creatorAuditLog?: CreatorAuditEntry[];
   lastResetDate: string;
   dailyHp: number | null;
   dailyHpDate: string | null;
@@ -622,6 +674,8 @@ export type AppState = {
   artifacts: Artifact[];
   activeEffects: ActiveEffects;
   artifactHistory: ArtifactHistoryEntry[];
+  mediaLibrary: CreatorMediaItem[];
+  creatorAuditLog: CreatorAuditEntry[];
   dailyHp: number | null;
   dailyHpDate: string | null;
 
@@ -687,16 +741,24 @@ export type HouseholdTaskEntry = {
   completedAt: string | null;
 };
 
+export type TaskHistoryKind =
+  | HouseholdTaskKind
+  | "daily_quest"
+  | "special_quest"
+  | "fun_special_activity";
+
 export type TaskHistoryEntry = {
   id: string;
   taskId: string;
   title: string;
-  kind: HouseholdTaskKind;
+  kind: TaskHistoryKind;
+  description?: string;
   xp: number;
   statRewards: Partial<Stats>;
   completedAt: string;
-  source: HouseholdTaskKind;
+  source: TaskHistoryKind | string;
   details: string;
+  artifactName?: string;
 };
 
 export type ArtifactHistoryEntry = {

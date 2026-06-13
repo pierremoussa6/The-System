@@ -4,8 +4,8 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   display_name text not null default 'Player',
-  role text not null default 'player' check (role in ('creator', 'player')),
-  account_status text not null default 'pending_approval' check (account_status in ('pending_approval', 'approved', 'rejected')),
+  role text not null default 'player' check (role in ('creator', 'admin', 'player')),
+  account_status text not null default 'pending_approval' check (account_status in ('pending_approval', 'approved', 'rejected', 'blocked')),
   timezone text not null default 'Europe/Stockholm',
   reminders_enabled boolean not null default true,
   created_at timestamptz not null default now(),
@@ -14,7 +14,21 @@ create table if not exists public.profiles (
 
 alter table public.profiles
 add column if not exists account_status text not null default 'pending_approval'
-check (account_status in ('pending_approval', 'approved', 'rejected'));
+check (account_status in ('pending_approval', 'approved', 'rejected', 'blocked'));
+
+alter table public.profiles
+drop constraint if exists profiles_role_check;
+
+alter table public.profiles
+add constraint profiles_role_check
+check (role in ('creator', 'admin', 'player'));
+
+alter table public.profiles
+drop constraint if exists profiles_account_status_check;
+
+alter table public.profiles
+add constraint profiles_account_status_check
+check (account_status in ('pending_approval', 'approved', 'rejected', 'blocked'));
 
 create table if not exists public.user_state (
   user_id uuid primary key references public.profiles(id) on delete cascade,
@@ -39,6 +53,8 @@ create table if not exists public.user_state (
   active_effects_json jsonb not null default '{}'::jsonb,
   task_history_json jsonb not null default '[]'::jsonb,
   artifact_history_json jsonb not null default '[]'::jsonb,
+  media_library_json jsonb not null default '[]'::jsonb,
+  creator_audit_log_json jsonb not null default '[]'::jsonb,
   app_state_json jsonb,
   updated_at timestamptz not null default now()
 );
@@ -75,6 +91,12 @@ add column if not exists daily_hp integer;
 
 alter table public.user_state
 add column if not exists daily_hp_date date;
+
+alter table public.user_state
+add column if not exists media_library_json jsonb not null default '[]'::jsonb;
+
+alter table public.user_state
+add column if not exists creator_audit_log_json jsonb not null default '[]'::jsonb;
 
 create table if not exists public.daily_quests (
   id uuid primary key default gen_random_uuid(),
@@ -214,6 +236,31 @@ create table if not exists public.admin_notifications (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.creator_media (
+  id uuid primary key default gen_random_uuid(),
+  uploaded_by uuid not null references public.profiles(id) on delete cascade,
+  target_type text not null,
+  target_id text not null,
+  scope text not null default 'user' check (scope in ('global', 'user', 'fallback')),
+  user_id uuid references public.profiles(id) on delete cascade,
+  file_url text not null,
+  file_type text not null,
+  alt_text text not null default '',
+  title text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.creator_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  creator_id uuid not null references public.profiles(id) on delete cascade,
+  affected_user_id uuid references public.profiles(id) on delete cascade,
+  field_changed text not null,
+  old_value text not null default '',
+  new_value text not null default '',
+  created_at timestamptz not null default now()
+);
+
 create or replace function public.is_creator(check_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -224,7 +271,7 @@ as $$
     select 1
     from public.profiles
     where id = check_user_id
-      and role = 'creator'
+      and role in ('creator', 'admin')
   );
 $$;
 
@@ -256,8 +303,8 @@ begin
       new.role := 'player';
       new.account_status := 'pending_approval';
     else
-      new.role := case when new.role = 'creator' then 'creator' else 'player' end;
-      if new.role = 'creator' then
+      new.role := case when new.role in ('creator', 'admin') then new.role else 'player' end;
+      if new.role in ('creator', 'admin') then
         new.account_status := 'approved';
       else
         new.account_status := coalesce(nullif(new.account_status, ''), 'pending_approval');
@@ -275,12 +322,12 @@ begin
         new.role := 'creator';
         new.account_status := 'approved';
       elsif acting_as_creator or is_system_actor then
-        new.role := case when new.role = 'creator' then 'creator' else 'player' end;
-        if new.role = 'creator' then
+        new.role := case when new.role in ('creator', 'admin') then new.role else 'player' end;
+        if new.role in ('creator', 'admin') then
           new.account_status := 'approved';
         else
           new.account_status := case
-            when new.account_status in ('pending_approval', 'approved', 'rejected') then new.account_status
+            when new.account_status in ('pending_approval', 'approved', 'rejected', 'blocked') then new.account_status
             else old.account_status
           end;
         end if;
@@ -350,6 +397,8 @@ alter table public.system_logs enable row level security;
 alter table public.achievements enable row level security;
 alter table public.reminder_logs enable row level security;
 alter table public.admin_notifications enable row level security;
+alter table public.creator_media enable row level security;
+alter table public.creator_audit_logs enable row level security;
 
 drop policy if exists "profiles_select_own_or_creator" on public.profiles;
 drop policy if exists "profiles_insert_own" on public.profiles;
@@ -367,6 +416,9 @@ drop policy if exists "system_logs_own_or_creator" on public.system_logs;
 drop policy if exists "achievements_own_or_creator" on public.achievements;
 drop policy if exists "reminder_logs_own_or_creator" on public.reminder_logs;
 drop policy if exists "admin_notifications_creator" on public.admin_notifications;
+drop policy if exists "creator_media_creator_manage" on public.creator_media;
+drop policy if exists "creator_media_select_visible" on public.creator_media;
+drop policy if exists "creator_audit_logs_creator" on public.creator_audit_logs;
 
 create policy "profiles_select_own_or_creator"
 on public.profiles for select
@@ -443,6 +495,24 @@ with check (auth.uid() = user_id or public.is_creator());
 
 create policy "admin_notifications_creator"
 on public.admin_notifications for all
+using (public.is_creator())
+with check (public.is_creator());
+
+create policy "creator_media_select_visible"
+on public.creator_media for select
+using (
+  public.is_creator()
+  or scope in ('global', 'fallback')
+  or auth.uid() = user_id
+);
+
+create policy "creator_media_creator_manage"
+on public.creator_media for all
+using (public.is_creator())
+with check (public.is_creator());
+
+create policy "creator_audit_logs_creator"
+on public.creator_audit_logs for all
 using (public.is_creator())
 with check (public.is_creator());
 

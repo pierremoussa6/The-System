@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useApp } from "../store";
+import { getActiveArtifactEffects, getWorldChallengeSummary } from "../artifacts";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import type { LogEntryType } from "../types";
 
 export default function SystemLogPage() {
-  const { isLoaded, log } = useApp();
+  const { isLoaded, log, activeEffects } = useApp();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const grouped = useMemo(() => {
@@ -32,6 +33,10 @@ export default function SystemLogPage() {
       penalty: log.filter((entry) => entry.type === "penalty"),
     };
   }, [log]);
+  const worldEffect = getActiveArtifactEffects(activeEffects).find(
+    (effect) => effect.artifactId === "world_completion"
+  );
+  const worldSummary = worldEffect ? getWorldChallengeSummary(worldEffect) : null;
 
   if (!isLoaded) {
     return (
@@ -162,6 +167,29 @@ export default function SystemLogPage() {
   return (
     <div className="space-y-6">
       <h1 className="mb-6 text-3xl text-blue-400">System Log</h1>
+
+      {worldSummary && (
+        <PanelCard className="border-emerald-500">
+          <SectionTitle
+            title="The World's Completion"
+            colorClass="text-emerald-400"
+            subtitle="Persistent active artifact state."
+          />
+          <div className="h-2 overflow-hidden rounded bg-zinc-800">
+            <div
+              className="h-full rounded bg-emerald-400"
+              style={{
+                width: `${Math.round(
+                  (worldSummary.currentProgress / worldSummary.requiredProgress) * 100
+                )}%`,
+              }}
+            />
+          </div>
+          <p className="mt-2 text-sm text-emerald-200">
+            {worldSummary.currentProgress}/{worldSummary.requiredProgress} streak days counted
+          </p>
+        </PanelCard>
+      )}
 
       {log.length === 0 ? (
         <PanelCard>

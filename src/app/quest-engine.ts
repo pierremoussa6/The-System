@@ -34,6 +34,7 @@ import {
   normalizeActiveEffects,
   normalizeArtifacts,
 } from "./artifacts";
+import { normalizeCreatorMediaLibrary } from "./creator-media";
 import {
   getDayNumberFromDateString,
   getWeekdayName,
@@ -2282,6 +2283,9 @@ export function createNewUserRecord(name: string): UserRecord {
     aiQuestIndex: 0,
     artifacts: createStarterArtifacts(),
     activeEffects,
+    artifactHistory: [],
+    mediaLibrary: [],
+    creatorAuditLog: [],
     lastResetDate: today,
     dailyHp: null,
     dailyHpDate: null,
@@ -2360,6 +2364,12 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     user.funSpecialActivities
   );
   const safeFoodJournal = normalizeFoodJournalEntries(user.foodJournal);
+  const safeMediaLibrary = normalizeCreatorMediaLibrary(user.mediaLibrary);
+  const safeCreatorAuditLog = Array.isArray(user.creatorAuditLog)
+    ? user.creatorAuditLog
+        .filter((entry) => entry && typeof entry === "object")
+        .slice(0, 500)
+    : [];
   const safeDietFeedback = Array.isArray(user.dietFeedback)
     ? user.dietFeedback
         .filter((entry) => entry && typeof entry === "object")
@@ -2410,6 +2420,8 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
       artifactHistory: Array.isArray(user.artifactHistory)
         ? user.artifactHistory
         : [],
+      mediaLibrary: safeMediaLibrary,
+      creatorAuditLog: safeCreatorAuditLog,
       specialQuestMemory: safeSpecialQuestMemory,
     };
   }
@@ -2550,6 +2562,8 @@ export function normalizeUserForToday(user: UserRecord): UserRecord {
     artifactHistory: Array.isArray(user.artifactHistory)
       ? user.artifactHistory
       : [],
+    mediaLibrary: safeMediaLibrary,
+    creatorAuditLog: safeCreatorAuditLog,
     lastResetDate: today,
     dailyHp: null,
     dailyHpDate: null,

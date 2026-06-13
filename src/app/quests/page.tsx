@@ -15,11 +15,13 @@ import {
   getDailyQuestOverride,
   isArtifactEffectActive,
 } from "../artifacts";
+import { getMediaForTarget } from "../creator-media";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
 import ActionButton from "../components/ActionButton";
 import CollapsibleSection from "../components/CollapsibleSection";
+import CreatorMediaBanner from "../components/CreatorMediaBanner";
 
 export default function QuestsPage() {
   const {
@@ -46,6 +48,8 @@ export default function QuestsPage() {
     generateFunSpecialActivity,
     completeFunSpecialActivity,
     activeEffects,
+    activeUser,
+    mediaLibrary,
   } = useApp();
   const [newChore, setNewChore] = useState("");
   const [newGrocery, setNewGrocery] = useState("");
@@ -94,6 +98,23 @@ export default function QuestsPage() {
       effect.artifactId === "world_completion"
   );
   const sunRadianceActive = isArtifactEffectActive(activeEffects, "sun_radiance");
+  const questBanner = activeUser
+    ? getMediaForTarget(mediaLibrary, "quest_banner", "default", activeUser.id)
+    : null;
+  const specialQuestMedia = activeUser
+    ? getMediaForTarget(
+        mediaLibrary,
+        "special_quest",
+        String(specialQuest.id),
+        activeUser.id
+      ) ??
+      getMediaForTarget(
+        mediaLibrary,
+        "special_quest",
+        specialQuest.title,
+        activeUser.id
+      )
+    : null;
 
   function getQuestRewardText(questId: number) {
     const quest = quests.find((q) => q.id === questId);
@@ -234,6 +255,8 @@ export default function QuestsPage() {
   }
   return (
     <div className="space-y-6">
+      <CreatorMediaBanner media={questBanner} />
+
       <h1 className="text-3xl text-blue-400">Quests</h1>
 
       <PanelCard className={recoveryModeActive ? "border-emerald-500" : "border-cyan-500"}>
@@ -305,102 +328,114 @@ export default function QuestsPage() {
       <PanelCard className="border-purple-500">
         <SectionTitle title="Special Quest" colorClass="text-purple-400" />
 
-        <p className="text-lg">{specialQuest.title}</p>
-        <p className="text-zinc-300">{specialQuest.description}</p>
-        <p className="text-sm text-zinc-400">
-          Reward: +{specialQuest.xp} XP
-        </p>
-        <p className="text-sm text-zinc-400">
-          Penalty: {specialQuest.penalty}
-        </p>
-        {specialQuest.penaltyAction && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-            <p className="mb-1 text-sm text-red-300">
-              Corrective Action: {specialQuest.penaltyAction.title}
+        {specialQuest.completed || specialQuest.awardedToday ? (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+            <p className="font-medium text-emerald-100">
+              Special quest completed and moved to Task History.
             </p>
-            <p className="text-sm text-zinc-300">
-              {specialQuest.penaltyAction.completionCondition}
+            <p className="mt-1 text-sm text-zinc-300">
+              {specialQuest.title} is saved with its final reward and source details.
             </p>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-              <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-red-200">
-                {specialQuest.penaltyAction.category.replace(/_/g, " ")}
-              </span>
-              <span className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-zinc-300">
-                {specialQuest.penaltyAction.intensity}
-              </span>
-              {specialQuest.penaltyAction.amountSek && (
-                <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-emerald-200">
-                  {specialQuest.penaltyAction.amountSek} SEK savings
+            <div className="mt-3 flex flex-wrap gap-3">
+              <ActionButton onClick={generateFunSpecialActivity} variant="green">
+                Generate a fun special activity
+              </ActionButton>
+            </div>
+          </div>
+        ) : (
+          <>
+            <CreatorMediaBanner media={specialQuestMedia} />
+            <p className="text-lg">{specialQuest.title}</p>
+            <p className="text-zinc-300">{specialQuest.description}</p>
+            <p className="text-sm text-zinc-400">
+              Reward: +{specialQuest.xp} XP
+            </p>
+            <p className="text-sm text-zinc-400">
+              Penalty: {specialQuest.penalty}
+            </p>
+            {specialQuest.penaltyAction && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+                <p className="mb-1 text-sm text-red-300">
+                  Corrective Action: {specialQuest.penaltyAction.title}
+                </p>
+                <p className="text-sm text-zinc-300">
+                  {specialQuest.penaltyAction.completionCondition}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-red-200">
+                    {specialQuest.penaltyAction.category.replace(/_/g, " ")}
+                  </span>
+                  <span className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-zinc-300">
+                    {specialQuest.penaltyAction.intensity}
+                  </span>
+                  {specialQuest.penaltyAction.amountSek && (
+                    <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-emerald-200">
+                      {specialQuest.penaltyAction.amountSek} SEK savings
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 text-xs">
+              {specialQuest.jobFocus && specialQuest.jobFocus !== "None" && (
+                <span className="rounded border border-purple-500/40 bg-purple-500/10 px-2 py-1 text-purple-200">
+                  {specialQuest.jobFocus}
+                </span>
+              )}
+              {specialQuest.source && (
+                <span className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-sky-200">
+                  {specialQuest.source.replace("_", " ")}
+                </span>
+              )}
+              {specialQuest.durationMinutes && (
+                <span className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-zinc-300">
+                  {specialQuest.durationMinutes} min
                 </span>
               )}
             </div>
-          </div>
+
+            {specialQuest.completionCondition && (
+              <p className="text-sm text-zinc-400">
+                Completion: {specialQuest.completionCondition}
+              </p>
+            )}
+
+            <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
+              <p className="text-sm text-zinc-400 mb-1">Quest State</p>
+              <p className="text-zinc-200 capitalize">{specialQuest.status}</p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <ActionButton
+                onClick={acceptSpecialQuest}
+                disabled={specialQuest.status !== "pending"}
+                variant="blue"
+              >
+                Accept Quest
+              </ActionButton>
+
+              <ActionButton
+                onClick={markSpecialQuestUrgent}
+                disabled={specialQuest.status === "urgent" || specialQuest.completed}
+                variant="red"
+              >
+                Mark Urgent
+              </ActionButton>
+
+              <ActionButton
+                onClick={completeSpecialQuest}
+                variant="purple"
+              >
+                Complete Special Quest
+              </ActionButton>
+
+              <ActionButton onClick={generateFunSpecialActivity} variant="green">
+                Generate a fun special activity
+              </ActionButton>
+            </div>
+          </>
         )}
-
-        <div className="flex flex-wrap gap-2 text-xs">
-          {specialQuest.jobFocus && specialQuest.jobFocus !== "None" && (
-            <span className="rounded border border-purple-500/40 bg-purple-500/10 px-2 py-1 text-purple-200">
-              {specialQuest.jobFocus}
-            </span>
-          )}
-          {specialQuest.source && (
-            <span className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-sky-200">
-              {specialQuest.source.replace("_", " ")}
-            </span>
-          )}
-          {specialQuest.durationMinutes && (
-            <span className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-zinc-300">
-              {specialQuest.durationMinutes} min
-            </span>
-          )}
-        </div>
-
-        {specialQuest.completionCondition && (
-          <p className="text-sm text-zinc-400">
-            Completion: {specialQuest.completionCondition}
-          </p>
-        )}
-
-        <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
-          <p className="text-sm text-zinc-400 mb-1">Quest State</p>
-          <p className="text-zinc-200 capitalize">{specialQuest.status}</p>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <ActionButton
-            onClick={acceptSpecialQuest}
-            disabled={specialQuest.status !== "pending"}
-            variant="blue"
-          >
-            Accept Quest
-          </ActionButton>
-
-          <ActionButton
-            onClick={markSpecialQuestUrgent}
-            disabled={specialQuest.status === "urgent" || specialQuest.completed}
-            variant="red"
-          >
-            Mark Urgent
-          </ActionButton>
-
-          <ActionButton
-            onClick={completeSpecialQuest}
-            disabled={specialQuest.completed || specialQuest.awardedToday}
-            variant={
-              specialQuest.completed || specialQuest.awardedToday
-                ? "green"
-                : "purple"
-            }
-          >
-            {specialQuest.completed || specialQuest.awardedToday
-              ? "Completed"
-              : "Complete Special Quest"}
-          </ActionButton>
-
-          <ActionButton onClick={generateFunSpecialActivity} variant="green">
-            Generate a fun special activity
-          </ActionButton>
-        </div>
 
         {funSpecialActivities.length > 0 && (
           <div className="space-y-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
@@ -412,6 +447,25 @@ export default function QuestsPage() {
                 key={activity.id}
                 className="rounded-lg border border-zinc-700 bg-zinc-900 p-4"
               >
+                <CreatorMediaBanner
+                  media={
+                    activeUser
+                      ? getMediaForTarget(
+                          mediaLibrary,
+                          "fun_activity",
+                          String(activity.id),
+                          activeUser.id
+                        ) ??
+                        getMediaForTarget(
+                          mediaLibrary,
+                          "fun_activity",
+                          activity.title,
+                          activeUser.id
+                        )
+                      : null
+                  }
+                  className="mb-3"
+                />
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-white">{activity.title}</p>
@@ -659,13 +713,21 @@ export default function QuestsPage() {
           rightSlot={<span>{taskHistory.length} completed</span>}
         >
           {taskHistory.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {(["chore", "grocery", "study", "agility"] as const).map((kind) => {
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {[
+                ["daily_quest", "Daily quests"],
+                ["special_quest", "Special quests"],
+                ["fun_special_activity", "Fun activities"],
+                ["chore", "Chores"],
+                ["grocery", "Groceries"],
+                ["study", "Study"],
+                ["agility", "Agility"],
+              ].map(([kind, label]) => {
                 const entries = taskHistory.filter((entry) => entry.kind === kind);
 
                 return (
                   <div key={kind} className="space-y-3">
-                    <p className="font-medium text-white capitalize">{kind}</p>
+                    <p className="font-medium text-white">{label}</p>
                     {entries.length > 0 ? (
                       entries.map((entry) => (
                         <div
@@ -675,8 +737,17 @@ export default function QuestsPage() {
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="font-medium text-white">{entry.title}</p>
+                              {entry.description && (
+                                <p className="text-sm text-zinc-300">
+                                  {entry.description}
+                                </p>
+                              )}
                               <p className="text-sm text-zinc-400">{entry.completedAt}</p>
                               <p className="text-sm text-zinc-400">{entry.details}</p>
+                              <p className="text-xs text-zinc-500">
+                                Source: {entry.source}
+                                {entry.artifactName ? ` / ${entry.artifactName}` : ""}
+                              </p>
                             </div>
                             <span className="rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-xs text-zinc-300">
                               {entry.kind}
@@ -692,7 +763,7 @@ export default function QuestsPage() {
                       ))
                     ) : (
                       <p className="rounded-lg border border-zinc-700 bg-zinc-800 p-4 text-sm text-zinc-400">
-                        No completed {kind} tasks yet.
+                        No completed {label.toLowerCase()} yet.
                       </p>
                     )}
                   </div>

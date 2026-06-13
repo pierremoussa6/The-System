@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { useApp } from "../store";
+import { getMediaForTarget } from "../creator-media";
 import { getPersonalization } from "../quest-engine";
 import {
   getCalorieTargetRange,
@@ -29,6 +30,7 @@ import type {
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import ActionButton from "../components/ActionButton";
+import CreatorMediaBanner from "../components/CreatorMediaBanner";
 
 function isDietMission(title: string, description: string) {
   const text = `${title} ${description}`.toLowerCase();
@@ -89,6 +91,8 @@ export default function DietPage() {
     aiWeeklyPlan,
     foodJournal,
     dietFeedback,
+    activeUser,
+    mediaLibrary,
     addFoodJournalEntry,
     deleteFoodJournalEntry,
     saveDietFeedback,
@@ -139,6 +143,9 @@ export default function DietPage() {
   const previousEntries = foodJournal.filter((entry) => entry.date === previousDate);
   const previousSummary = getNutritionSummary(previousEntries);
   const savedFeedback = dietFeedback.find((entry) => entry.date === previousDate);
+  const dietBanner = activeUser
+    ? getMediaForTarget(mediaLibrary, "diet_banner", "default", activeUser.id)
+    : null;
 
   const chartData = [
     { key: "calories", label: "Calories", consumed: summary.calories, target: targets.calories },
@@ -228,6 +235,8 @@ export default function DietPage() {
 
   return (
     <div className="space-y-6">
+      <CreatorMediaBanner media={dietBanner} />
+
       <h1 className="mb-6 text-3xl text-blue-400">Diet</h1>
 
       <PanelCard className="border-emerald-500">

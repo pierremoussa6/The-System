@@ -35,6 +35,7 @@ import {
   applyArtifactRewardModifiers,
   consumeArtifactCopy,
   createActiveArtifactEffect,
+  createWorldCompletionMetadata,
   createDefaultActiveEffects,
   getArtifactMeta,
   getArtifactPurchaseState,
@@ -43,6 +44,7 @@ import {
   getNewArtifactUnlocks,
   getSpendableXp,
   normalizeActiveEffects,
+  updateWorldChallengeProgress,
   unlockArtifacts,
 } from "./artifacts";
 
@@ -77,8 +79,10 @@ import {
 } from "./reward-system";
 import {
   createTaskHistoryEntry,
+  createQuestTaskHistoryEntry,
   createHouseholdTask,
   getHouseholdTaskReward,
+  inferSpecialQuestHistorySource,
 } from "./task-system";
 import { useAuth } from "./auth-context";
 import { getSupabaseBrowserClient } from "./lib/supabase/client";
@@ -88,11 +92,41 @@ import {
   buildWorkoutProgram,
   sanitizeWorkoutProgramForProfile,
 } from "./workout-system";
+import { normalizeCreatorMediaLibrary } from "./creator-media";
 
 const STORAGE_KEY = "the-system-multi-user-data";
 const SAVE_DELAY_MS = 600;
 
 const AppContext = createContext<AppState | null>(null);
+
+type RemoteUserStateSnapshot = {
+  user_id: string;
+  total_xp?: number | null;
+  lifetime_xp?: number | null;
+  spendable_xp?: number | null;
+  streak?: number | null;
+  last_completion_date?: string | null;
+  strength?: number | null;
+  vitality?: number | null;
+  discipline?: number | null;
+  focus?: number | null;
+  intelligence?: number | null;
+  agility?: number | null;
+  magic_resistance?: number | null;
+  daily_hp?: number | null;
+  daily_hp_date?: string | null;
+  ai_analysis_json?: AiSystemAnalysis | null;
+  ai_weekly_plan_json?: AiWeeklyPlan | null;
+  workout_program_json?: WorkoutProgram | null;
+  ai_quest_index?: number | null;
+  active_effects_json?: Partial<ActiveEffects> | null;
+  artifact_history_json?: UserRecord["artifactHistory"] | null;
+  task_history_json?: UserRecord["taskHistory"] | null;
+  media_library_json?: UserRecord["mediaLibrary"] | null;
+  creator_audit_log_json?: UserRecord["creatorAuditLog"] | null;
+  app_state_json?: UserRecord | null;
+  updated_at?: string | null;
+};
 
 function createSingleUserData(user: UserRecord): MultiUserData {
   return {
@@ -199,6 +233,116 @@ function isUserRecord(value: unknown): value is UserRecord {
   );
 }
 
+function remoteNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.round(value))
+    : null;
+}
+
+function hasSavedActiveEffectState(effects: ActiveEffects) {
+  return (
+    effects.artifactEffects.length > 0 ||
+    Object.keys(effects.dailyQuestOverrides).length > 0 ||
+    Object.keys(effects.wheelSpins).length > 0 ||
+    Object.keys(effects.oneTimeUse).length > 0 ||
+    Boolean(effects.doubleDailyXpDate || effects.magicianDoubleCastDate)
+  );
+}
+
+function getRemoteUserRecord(
+  authUserId: string,
+  displayName: string,
+  remoteState: RemoteUserStateSnapshot | null | undefined
+) {
+  if (!remoteState) return null;
+
+  const baseRecord = isUserRecord(remoteState.app_state_json)
+    ? remoteState.app_state_json
+    : normalizeUserForToday({
+        ...createNewUserRecord(displayName),
+        id: authUserId,
+      });
+  const baseStats = normalizeStats(baseRecord.stats);
+  const columnStats = {
+    strength: remoteNumber(remoteState.strength) ?? baseStats.strength,
+    vitality: remoteNumber(remoteState.vitality) ?? baseStats.vitality,
+    discipline: remoteNumber(remoteState.discipline) ?? baseStats.discipline,
+    intelligence:
+      remoteNumber(remoteState.intelligence) ??
+      remoteNumber(remoteState.focus) ??
+      baseStats.intelligence,
+    agility: remoteNumber(remoteState.agility) ?? baseStats.agility,
+    magicResistance:
+      remoteNumber(remoteState.magic_resistance) ?? baseStats.magicResistance,
+  };
+  const baseActiveEffects = normalizeActiveEffects(baseRecord.activeEffects);
+  const columnActiveEffects = normalizeActiveEffects(
+    remoteState.active_effects_json ?? undefined
+  );
+  const activeEffects = hasSavedActiveEffectState(columnActiveEffects)
+    ? columnActiveEffects
+    : baseActiveEffects;
+  const lifetimeXp = Math.max(
+    baseRecord.lifetimeXp ?? baseRecord.totalXp,
+    remoteNumber(remoteState.lifetime_xp) ?? 0,
+    remoteNumber(remoteState.total_xp) ?? 0
+  );
+  const totalXp = Math.max(
+    baseRecord.totalXp,
+    remoteNumber(remoteState.total_xp) ?? 0,
+    lifetimeXp
+  );
+
+  return normalizeUserForToday({
+    ...baseRecord,
+    id: authUserId,
+    totalXp,
+    lifetimeXp,
+    spendableXp:
+      remoteNumber(remoteState.spendable_xp) ??
+      baseRecord.spendableXp ??
+      totalXp,
+    streak: remoteNumber(remoteState.streak) ?? baseRecord.streak,
+    lastCompletionDate:
+      remoteState.last_completion_date ?? baseRecord.lastCompletionDate,
+    stats: columnStats,
+    dailyHp: remoteNumber(remoteState.daily_hp) ?? baseRecord.dailyHp,
+    dailyHpDate: remoteState.daily_hp_date ?? baseRecord.dailyHpDate,
+    aiAnalysis: remoteState.ai_analysis_json ?? baseRecord.aiAnalysis,
+    aiWeeklyPlan: remoteState.ai_weekly_plan_json ?? baseRecord.aiWeeklyPlan,
+    workoutProgram:
+      remoteState.workout_program_json ?? baseRecord.workoutProgram,
+    aiQuestIndex:
+      remoteNumber(remoteState.ai_quest_index) ?? baseRecord.aiQuestIndex,
+    activeEffects,
+    artifactHistory:
+      Array.isArray(remoteState.artifact_history_json) &&
+      (remoteState.artifact_history_json.length > 0 ||
+        (baseRecord.artifactHistory ?? []).length === 0)
+      ? remoteState.artifact_history_json
+      : baseRecord.artifactHistory ?? [],
+    taskHistory:
+      Array.isArray(remoteState.task_history_json) &&
+      (remoteState.task_history_json.length > 0 ||
+        (baseRecord.taskHistory ?? []).length === 0)
+      ? remoteState.task_history_json
+      : baseRecord.taskHistory ?? [],
+    mediaLibrary: normalizeCreatorMediaLibrary(
+      Array.isArray(remoteState.media_library_json) &&
+        (remoteState.media_library_json.length > 0 ||
+          (baseRecord.mediaLibrary ?? []).length === 0)
+        ? remoteState.media_library_json
+        : baseRecord.mediaLibrary
+    ),
+    creatorAuditLog:
+      Array.isArray(remoteState.creator_audit_log_json) &&
+      (remoteState.creator_audit_log_json.length > 0 ||
+        (baseRecord.creatorAuditLog ?? []).length === 0)
+      ? remoteState.creator_audit_log_json
+      : baseRecord.creatorAuditLog ?? [],
+  });
+}
+
 function prepareAuthenticatedUserRecord(
   authUserId: string,
   displayName: string,
@@ -242,6 +386,8 @@ function getUserStatePayload(user: UserRecord) {
     active_effects_json: user.activeEffects,
     artifact_history_json: user.artifactHistory ?? [],
     task_history_json: user.taskHistory ?? [],
+    media_library_json: user.mediaLibrary ?? [],
+    creator_audit_log_json: user.creatorAuditLog ?? [],
     app_state_json: user,
     updated_at: new Date().toISOString(),
   };
@@ -331,6 +477,26 @@ function applyRewardBundle(
     | "artifact_challenge"
     | "system" = "system"
 ): UserRecord {
+  return applyRewardBundleDetailed(user, reward, logEntry, source).user;
+}
+
+function applyRewardBundleDetailed(
+  user: UserRecord,
+  reward: RewardBundle,
+  logEntry: {
+    type: UserRecord["log"][number]["type"];
+    title: string;
+    details?: string;
+  },
+  source:
+    | "daily_quest"
+    | "special_quest"
+    | "fun_special_activity"
+    | "household_task"
+    | "artifact_bonus"
+    | "artifact_challenge"
+    | "system" = "system"
+): { user: UserRecord; finalReward: RewardBundle; modifierLogs: string[] } {
   const modified = applyArtifactRewardModifiers(
     user,
     reward,
@@ -359,16 +525,20 @@ function applyRewardBundle(
     });
   }
 
-  return applyArtifactUnlockRewards({
-    ...user,
-    lifetimeXp: (user.lifetimeXp ?? user.totalXp) + finalReward.xp,
-    totalXp: user.totalXp + finalReward.xp,
-    spendableXp: getSpendableXp(user) + finalReward.xp,
-    stats: nextStats,
-    history: nextHistory,
-    log: nextLog,
-    activeEffects: modified.activeEffects,
-  });
+  return {
+    user: applyArtifactUnlockRewards({
+      ...user,
+      lifetimeXp: (user.lifetimeXp ?? user.totalXp) + finalReward.xp,
+      totalXp: user.totalXp + finalReward.xp,
+      spendableXp: getSpendableXp(user) + finalReward.xp,
+      stats: nextStats,
+      history: nextHistory,
+      log: nextLog,
+      activeEffects: modified.activeEffects,
+    }),
+    finalReward,
+    modifierLogs: modified.logs,
+  };
 }
 
 function useClientReady() {
@@ -417,11 +587,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const displayName =
         authProfile?.display_name ?? authUserEmail?.split("@")[0] ?? "Player";
 
-      const { data: remoteState, error } = await supabase
+      const fullStateSelect =
+        "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magic_resistance,daily_hp,daily_hp_date,ai_analysis_json,ai_weekly_plan_json,workout_program_json,ai_quest_index,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at";
+      const remoteQuery = await supabase
         .from("user_state")
-        .select("app_state_json")
+        .select(fullStateSelect)
         .eq("user_id", authUserId)
         .maybeSingle();
+      let remoteState = remoteQuery.data as RemoteUserStateSnapshot | null;
+      let error = remoteQuery.error;
+
+      if (error && error.code === "42703") {
+        const fallbackQuery = await supabase
+          .from("user_state")
+          .select("app_state_json")
+          .eq("user_id", authUserId)
+          .maybeSingle();
+
+        remoteState = fallbackQuery.data as RemoteUserStateSnapshot | null;
+        error = fallbackQuery.error;
+      }
 
       if (!isMounted) return;
 
@@ -429,9 +614,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.error("Failed to load remote user state", error);
       }
 
-      const remoteRecord = isUserRecord(remoteState?.app_state_json)
-        ? remoteState.app_state_json
-        : null;
+      const remoteRecord = getRemoteUserRecord(
+        authUserId,
+        displayName,
+        remoteState
+      );
 
       const localUser = getLocalActiveUser(loadInitialMultiUserData());
       const freshestRecord = chooseFreshestUserRecord(remoteRecord, localUser);
@@ -570,6 +757,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let xpToAdd = 0;
       let statRewards: Partial<Stats> = {};
       let loggedQuestTitle = "";
+      let loggedQuestDescription = "";
+      let loggedQuestId: number | null = null;
       let nextActiveEffects = normalizeActiveEffects(current.activeEffects);
       let modifierLogs: string[] = [];
 
@@ -591,6 +780,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             xpToAdd = modified.reward.xp;
             statRewards = modified.reward.statRewards;
             loggedQuestTitle = quest.title;
+            loggedQuestDescription = quest.description ?? "";
+            loggedQuestId = quest.id;
             nextActiveEffects = modified.activeEffects;
             modifierLogs = modified.logs;
           }
@@ -634,6 +825,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
+      const nextTaskHistory =
+        loggedQuestId !== null
+          ? [
+              createQuestTaskHistoryEntry({
+                taskId: `daily-${today}-${loggedQuestId}`,
+                title: loggedQuestTitle,
+                description: loggedQuestDescription,
+                kind: "daily_quest",
+                reward: {
+                  xp: xpToAdd,
+                  statRewards,
+                },
+                completedAt: getTimestampString(),
+                source: "daily quest",
+              }),
+              ...(current.taskHistory ?? []),
+            ].slice(0, 300)
+          : current.taskHistory;
+
       const allCompleted =
         nextQuests.length > 0 && nextQuests.every((quest) => quest.completed);
 
@@ -653,6 +863,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           title: "Daily Protocol Cleared",
           details: `All daily quests completed. Streak protocol preserved at ${nextStreak} day(s).`,
         });
+
+        const worldProgress = updateWorldChallengeProgress({
+          effects: nextActiveEffects,
+          nextStreak,
+          dateString: today,
+        });
+
+        if (worldProgress.changed) {
+          nextActiveEffects = worldProgress.activeEffects;
+
+          for (const details of worldProgress.logMessages) {
+            nextLog = appendLog(nextLog, {
+              type: "artifact",
+              title: "The World's Completion",
+              details,
+            });
+          }
+
+          if (worldProgress.reward) {
+            xpToAdd += worldProgress.reward.xp;
+            nextLog = appendLog(nextLog, {
+              type: "artifact",
+              title: "The World's Completion Reward",
+              details: `The World cycle is complete. Reward granted: ${formatRewardText(
+                worldProgress.reward
+              )}.`,
+            });
+          }
+        }
       }
 
       return applyArtifactUnlockRewards({
@@ -667,6 +906,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         history: nextHistory,
         log: nextLog,
         activeEffects: nextActiveEffects,
+        taskHistory: nextTaskHistory,
       });
     });
   }
@@ -679,22 +919,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return current;
       }
 
-      const rewardedUser = applyRewardBundle(current, {
-        xp: current.specialQuest.xp,
-        statRewards: current.specialQuest.statRewards,
-      }, {
-        type: "special_quest",
+      const rewardResult = applyRewardBundleDetailed(
+        current,
+        {
+          xp: current.specialQuest.xp,
+          statRewards: current.specialQuest.statRewards,
+        },
+        {
+          type: "special_quest",
+          title: current.specialQuest.title,
+        },
+        "special_quest"
+      );
+      const historySource = inferSpecialQuestHistorySource(current.specialQuest);
+      const completedAt = getTimestampString();
+      const historyEntry = createQuestTaskHistoryEntry({
+        taskId: `special-${current.specialQuest.id}`,
         title: current.specialQuest.title,
-      }, "special_quest");
+        description: current.specialQuest.description,
+        kind: "special_quest",
+        reward: rewardResult.finalReward,
+        completedAt,
+        source: historySource.source,
+        artifactName: historySource.artifactName,
+      });
 
       return {
-        ...rewardedUser,
+        ...rewardResult.user,
         specialQuest: {
           ...current.specialQuest,
           completed: true,
           awardedToday: true,
           status: "completed",
         },
+        taskHistory: [
+          historyEntry,
+          ...(rewardResult.user.taskHistory ?? current.taskHistory ?? []),
+        ].slice(0, 300),
       };
     });
   }
@@ -1110,28 +1371,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (!activity) return current;
 
-      const reward = {
-        xp: activity.xp,
-        statRewards: activity.statRewards,
-      };
-      const nextActivities = (current.funSpecialActivities ?? []).map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              completed: true,
-              awardedToday: true,
-              status: "completed" as const,
-            }
-          : item
+      const rewardResult = applyRewardBundleDetailed(
+        current,
+        {
+          xp: activity.xp,
+          statRewards: activity.statRewards,
+        },
+        {
+          type: "special_quest",
+          title: activity.title,
+        },
+        "fun_special_activity"
       );
-      const rewardedUser = applyRewardBundle(current, reward, {
-        type: "special_quest",
+      const historySource = inferSpecialQuestHistorySource(activity);
+      const completedAt = getTimestampString();
+      const historyEntry = createQuestTaskHistoryEntry({
+        taskId: `fun-${activity.id}`,
         title: activity.title,
-      }, "fun_special_activity");
+        description: activity.description,
+        kind: "fun_special_activity",
+        reward: rewardResult.finalReward,
+        completedAt,
+        source: historySource.source,
+        artifactName: historySource.artifactName,
+      });
 
       return {
-        ...rewardedUser,
-        funSpecialActivities: nextActivities,
+        ...rewardResult.user,
+        funSpecialActivities: (current.funSpecialActivities ?? []).filter(
+          (item) => item.id !== id
+        ),
+        taskHistory: [
+          historyEntry,
+          ...(rewardResult.user.taskHistory ?? current.taskHistory ?? []),
+        ].slice(0, 300),
       };
     });
   }
@@ -1941,6 +2214,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : duration === null
           ? null
           : new Date(Date.now() + duration).toISOString();
+      const metadata =
+        key === "world_completion" && expiresAt
+          ? {
+              title: meta.title,
+              ability: meta.ability,
+              ...createWorldCompletionMetadata({
+                startStreak: current.streak,
+                targetCompletionDate: expiresAt,
+              }),
+            }
+          : {
+              title: meta.title,
+              ability: meta.ability,
+            };
       result = createArtifactActionResult(
         key,
         "activation",
@@ -1958,10 +2245,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         activeEffects: {
           ...activeEffects,
           artifactEffects: [
-            createActiveArtifactEffect(key, meta.type, expiresAt, {
-              title: meta.title,
-              ability: meta.ability,
-            }),
+            createActiveArtifactEffect(key, meta.type, expiresAt, metadata),
             ...activeEffects.artifactEffects,
           ],
         },
@@ -2140,6 +2424,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         artifacts: activeUser?.artifacts ?? [],
         activeEffects: activeUser?.activeEffects ?? createDefaultActiveEffects(),
         artifactHistory: activeUser?.artifactHistory ?? [],
+        mediaLibrary: activeUser?.mediaLibrary ?? [],
+        creatorAuditLog: activeUser?.creatorAuditLog ?? [],
         dailyHp: activeUser?.dailyHp ?? null,
         dailyHpDate: activeUser?.dailyHpDate ?? null,
 

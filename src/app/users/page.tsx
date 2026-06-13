@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../store";
 import { useAuth } from "../auth-context";
@@ -7,7 +8,23 @@ import { getSupabaseBrowserClient } from "../lib/supabase/client";
 import PanelCard from "../components/PanelCard";
 import ActionButton from "../components/ActionButton";
 import { getSystemRank } from "../rank-system";
-import type { LogEntryType, UserRecord } from "../types";
+import { artifactOrder, getArtifactMeta, normalizeActiveEffects, normalizeArtifacts } from "../artifacts";
+import {
+  createCreatorAuditEntry,
+  createCreatorMediaItem,
+  normalizeCreatorMediaLibrary,
+} from "../creator-media";
+import type {
+  ActiveArtifactEffect,
+  Artifact,
+  CreatorMediaScope,
+  CreatorMediaTargetType,
+  LogEntryType,
+  Quest,
+  SpecialQuest,
+  UserProfile,
+  UserRecord,
+} from "../types";
 import {
   appendHistoryEntry,
   appendLog,
@@ -28,8 +45,8 @@ type RemoteProfile = {
   id: string;
   email: string;
   display_name: string;
-  role: "creator" | "player";
-  account_status: "pending_approval" | "approved" | "rejected";
+  role: "creator" | "admin" | "player";
+  account_status: "pending_approval" | "approved" | "rejected" | "blocked";
   timezone: string;
   reminders_enabled: boolean;
   created_at: string;
@@ -38,6 +55,8 @@ type RemoteProfile = {
 type RemoteUserState = {
   user_id: string;
   total_xp: number;
+  lifetime_xp?: number;
+  spendable_xp?: number;
   streak: number;
   last_completion_date: string | null;
   strength: number;
@@ -49,6 +68,11 @@ type RemoteUserState = {
   magicResistance: number;
   daily_hp: number | null;
   daily_hp_date: string | null;
+  active_effects_json?: UserRecord["activeEffects"] | null;
+  artifact_history_json?: UserRecord["artifactHistory"] | null;
+  task_history_json?: UserRecord["taskHistory"] | null;
+  media_library_json?: UserRecord["mediaLibrary"] | null;
+  creator_audit_log_json?: UserRecord["creatorAuditLog"] | null;
   app_state_json: UserRecord | null;
   updated_at: string;
 };
@@ -68,7 +92,9 @@ type AdminNotification = {
 };
 
 type EditableStateField =
+  | "lifetime_xp"
   | "total_xp"
+  | "spendable_xp"
   | "streak"
   | "strength"
   | "vitality"
@@ -78,7 +104,9 @@ type EditableStateField =
   | "magicResistance";
 
 const editableStateFields: { key: EditableStateField; label: string }[] = [
-  { key: "total_xp", label: "XP" },
+  { key: "lifetime_xp", label: "Lifetime XP" },
+  { key: "total_xp", label: "Total XP" },
+  { key: "spendable_xp", label: "Spendable XP" },
   { key: "streak", label: "Streak" },
   { key: "strength", label: "Strength" },
   { key: "vitality", label: "Vitality" },
@@ -86,6 +114,34 @@ const editableStateFields: { key: EditableStateField; label: string }[] = [
   { key: "intelligence", label: "Intelligence" },
   { key: "agility", label: "Agility" },
   { key: "magicResistance", label: "Magic Resistance" },
+];
+
+const profileTextFields: Array<{ key: keyof UserProfile; label: string }> = [
+  { key: "name", label: "Profile name" },
+  { key: "goal", label: "Goal" },
+  { key: "preferredWorkoutDays", label: "Workout days" },
+  { key: "dietaryRestrictions", label: "Diet restrictions" },
+  { key: "profession", label: "Profession" },
+  { key: "hobbies", label: "Hobbies" },
+  { key: "customInterests", label: "Custom interests" },
+  { key: "rpgIdentityNotes", label: "Injury/limitation/RPG notes" },
+];
+
+const mediaTargetOptions: Array<{
+  type: CreatorMediaTargetType;
+  label: string;
+  defaultTargetId: string;
+}> = [
+  { type: "dashboard_banner", label: "Dashboard banner", defaultTargetId: "default" },
+  { type: "quest_banner", label: "Quest page banner", defaultTargetId: "default" },
+  { type: "artifact_card", label: "Artifact card image", defaultTargetId: "fool_last_trick" },
+  { type: "artifact_activation", label: "Artifact activation animation", defaultTargetId: "fool_last_trick" },
+  { type: "workout_banner", label: "Workout banner", defaultTargetId: "default" },
+  { type: "exercise_media", label: "Exercise image/video", defaultTargetId: "exercise-name" },
+  { type: "diet_banner", label: "Diet banner", defaultTargetId: "default" },
+  { type: "progress_banner", label: "Progress banner", defaultTargetId: "default" },
+  { type: "rank_icon", label: "Rank icon", defaultTargetId: "E" },
+  { type: "profile_avatar", label: "Profile/avatar", defaultTargetId: "avatar" },
 ];
 
 const primaryCreatorEmail = "pierremoussa6@gmail.com";
@@ -99,6 +155,8 @@ function getEditableState(account: RemoteAccount): RemoteUserState {
   const baseState = account.state ?? {
     user_id: account.id,
     total_xp: 0,
+    lifetime_xp: 0,
+    spendable_xp: 0,
     streak: 0,
     last_completion_date: null,
     strength: 0,
@@ -117,6 +175,14 @@ function getEditableState(account: RemoteAccount): RemoteUserState {
 
   return {
     ...baseState,
+    lifetime_xp:
+      baseState.lifetime_xp ??
+      baseState.app_state_json?.lifetimeXp ??
+      baseState.total_xp,
+    spendable_xp:
+      baseState.spendable_xp ??
+      baseState.app_state_json?.spendableXp ??
+      baseState.total_xp,
     intelligence: appStats.intelligence || baseState.focus,
     agility: appStats.agility,
     magicResistance: appStats.magicResistance,
@@ -140,6 +206,8 @@ function createRemoteAppState(account: RemoteAccount, state: RemoteUserState) {
     ...baseRecord,
     id: account.id,
     totalXp: state.total_xp,
+    lifetimeXp: state.lifetime_xp ?? state.total_xp,
+    spendableXp: state.spendable_xp ?? state.total_xp,
     streak: state.streak,
     lastCompletionDate: state.last_completion_date,
     stats: {
@@ -165,6 +233,33 @@ function createRemoteAppState(account: RemoteAccount, state: RemoteUserState) {
     },
     dailyHp: state.daily_hp,
     dailyHpDate: state.daily_hp_date,
+    activeEffects:
+      state.active_effects_json ?? baseRecord.activeEffects,
+    artifactHistory:
+      Array.isArray(state.artifact_history_json) &&
+      (state.artifact_history_json.length > 0 ||
+        (baseRecord.artifactHistory ?? []).length === 0)
+        ? state.artifact_history_json
+        : baseRecord.artifactHistory ?? [],
+    taskHistory:
+      Array.isArray(state.task_history_json) &&
+      (state.task_history_json.length > 0 ||
+        baseRecord.taskHistory.length === 0)
+        ? state.task_history_json
+        : baseRecord.taskHistory,
+    mediaLibrary: normalizeCreatorMediaLibrary(
+      Array.isArray(state.media_library_json) &&
+        (state.media_library_json.length > 0 ||
+          (baseRecord.mediaLibrary ?? []).length === 0)
+        ? state.media_library_json
+        : baseRecord.mediaLibrary
+    ),
+    creatorAuditLog:
+      Array.isArray(state.creator_audit_log_json) &&
+      (state.creator_audit_log_json.length > 0 ||
+        (baseRecord.creatorAuditLog ?? []).length === 0)
+        ? state.creator_audit_log_json
+        : baseRecord.creatorAuditLog ?? [],
   });
 }
 
@@ -174,6 +269,18 @@ function getAccountAppState(account: RemoteAccount) {
 
 function getQuestStatusLabel(completed: boolean) {
   return completed ? "Completed" : "Open";
+}
+
+function safeJson(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
+function parseJsonOrNull<T>(value: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
 }
 
 function createRandomSpecialQuest(record: UserRecord) {
@@ -219,7 +326,7 @@ function createRandomSpecialQuest(record: UserRecord) {
 }
 
 export default function UsersPage() {
-  const { status, isCreator } = useAuth();
+  const { status, isCreator, user: authUser } = useAuth();
   const {
     isLoaded,
     users,
@@ -236,6 +343,26 @@ export default function UsersPage() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({});
+  const [creatorViewMode, setCreatorViewMode] = useState<"player" | "creator">("creator");
+  const [mediaDraft, setMediaDraft] = useState<{
+    accountId: string | null;
+    targetType: CreatorMediaTargetType;
+    targetId: string;
+    scope: CreatorMediaScope;
+    title: string;
+    altText: string;
+    fileUrl: string;
+    fileType: string;
+  }>({
+    accountId: null,
+    targetType: "artifact_card",
+    targetId: "fool_last_trick",
+    scope: "user",
+    title: "",
+    altText: "",
+    fileUrl: "",
+    fileType: "",
+  });
 
   const loadRemoteAccounts = useCallback(async () => {
     if (status === "unconfigured" || !isCreator) return;
@@ -260,12 +387,28 @@ export default function UsersPage() {
     const profileRows = (profiles ?? []) as RemoteProfile[];
     const profileIds = profileRows.map((profile) => profile.id);
 
-    const { data: states, error: statesError } = profileIds.length
-      ? await supabase
+    let states: unknown[] = [];
+    let statesError: { message: string; code?: string } | null = null;
+
+    if (profileIds.length) {
+      const stateQuery = await supabase
+        .from("user_state")
+        .select("user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at")
+        .in("user_id", profileIds);
+
+      states = stateQuery.data ?? [];
+      statesError = stateQuery.error;
+
+      if (statesError?.code === "42703") {
+        const fallbackQuery = await supabase
           .from("user_state")
-          .select("user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,app_state_json,updated_at")
-          .in("user_id", profileIds)
-      : { data: [], error: null };
+          .select("user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,daily_hp,daily_hp_date,app_state_json,updated_at")
+          .in("user_id", profileIds);
+
+        states = fallbackQuery.data ?? [];
+        statesError = fallbackQuery.error;
+      }
+    }
 
     if (statesError) {
       setRemoteError(statesError.message);
@@ -361,30 +504,59 @@ export default function UsersPage() {
       : appState;
 
     setRemoteError(null);
-    const { error } = await supabase.from("user_state").upsert(
-      {
-        user_id: account.id,
-        total_xp: nextAppState.totalXp,
-        streak: nextAppState.streak,
-        last_completion_date: nextAppState.lastCompletionDate,
-        strength: nextAppState.stats.strength,
-        vitality: nextAppState.stats.vitality,
-        discipline: nextAppState.stats.discipline,
-        focus: nextAppState.stats.intelligence,
-        intelligence: nextAppState.stats.intelligence,
-        agility: nextAppState.stats.agility,
-        magic_resistance: nextAppState.stats.magicResistance,
-        daily_hp: nextAppState.dailyHp,
-        daily_hp_date: nextAppState.dailyHpDate,
-        app_state_json: nextAppState,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    );
+    const updatedAt = new Date().toISOString();
+    const modernPayload = {
+      user_id: account.id,
+      total_xp: nextAppState.totalXp,
+      lifetime_xp: nextAppState.lifetimeXp,
+      spendable_xp: nextAppState.spendableXp,
+      streak: nextAppState.streak,
+      last_completion_date: nextAppState.lastCompletionDate,
+      strength: nextAppState.stats.strength,
+      vitality: nextAppState.stats.vitality,
+      discipline: nextAppState.stats.discipline,
+      focus: nextAppState.stats.intelligence,
+      intelligence: nextAppState.stats.intelligence,
+      agility: nextAppState.stats.agility,
+      magic_resistance: nextAppState.stats.magicResistance,
+      daily_hp: nextAppState.dailyHp,
+      daily_hp_date: nextAppState.dailyHpDate,
+      active_effects_json: nextAppState.activeEffects,
+      artifact_history_json: nextAppState.artifactHistory ?? [],
+      task_history_json: nextAppState.taskHistory ?? [],
+      media_library_json: nextAppState.mediaLibrary ?? [],
+      creator_audit_log_json: nextAppState.creatorAuditLog ?? [],
+      app_state_json: nextAppState,
+      updated_at: updatedAt,
+    };
+    const compatiblePayload = {
+      user_id: account.id,
+      total_xp: nextAppState.totalXp,
+      streak: nextAppState.streak,
+      last_completion_date: nextAppState.lastCompletionDate,
+      strength: nextAppState.stats.strength,
+      vitality: nextAppState.stats.vitality,
+      discipline: nextAppState.stats.discipline,
+      focus: nextAppState.stats.intelligence,
+      daily_hp: nextAppState.dailyHp,
+      daily_hp_date: nextAppState.dailyHpDate,
+      app_state_json: nextAppState,
+      updated_at: updatedAt,
+    };
 
-    if (error) {
-      setRemoteError(error.message);
-      return false;
+    const { error: modernError } = await supabase
+      .from("user_state")
+      .upsert(modernPayload, { onConflict: "user_id" });
+
+    if (modernError) {
+      const { error: compatibleError } = await supabase
+        .from("user_state")
+        .upsert(compatiblePayload, { onConflict: "user_id" });
+
+      if (compatibleError) {
+        setRemoteError(compatibleError.message);
+        return false;
+      }
     }
 
     if (logEntry) {
@@ -464,6 +636,72 @@ export default function UsersPage() {
     );
   }
 
+  function updateAccountAppStateDraft(
+    accountId: string,
+    updater: (record: UserRecord) => UserRecord
+  ) {
+    setRemoteAccounts((current) =>
+      current.map((account) => {
+        if (account.id !== accountId) return account;
+
+        const state = getEditableState(account);
+        const record = getAccountAppState(account);
+        const nextRecord = normalizeUserForToday(updater(record));
+
+        return {
+          ...account,
+          state: {
+            ...state,
+            total_xp: nextRecord.totalXp,
+            lifetime_xp: nextRecord.lifetimeXp,
+            spendable_xp: nextRecord.spendableXp,
+            streak: nextRecord.streak,
+            last_completion_date: nextRecord.lastCompletionDate,
+            strength: nextRecord.stats.strength,
+            vitality: nextRecord.stats.vitality,
+            discipline: nextRecord.stats.discipline,
+            focus: nextRecord.stats.intelligence,
+            intelligence: nextRecord.stats.intelligence,
+            agility: nextRecord.stats.agility,
+            magicResistance: nextRecord.stats.magicResistance,
+            daily_hp: nextRecord.dailyHp,
+            daily_hp_date: nextRecord.dailyHpDate,
+            app_state_json: nextRecord,
+            updated_at: new Date().toISOString(),
+          },
+        };
+      })
+    );
+  }
+
+  async function saveCreatorEditedState(
+    account: RemoteAccount,
+    label: string,
+    fieldChanged = "creator_view"
+  ) {
+    const appState = getAccountAppState(account);
+    const creatorId = authUser?.id ?? activeUserId ?? "creator";
+    const nextState = normalizeUserForToday({
+      ...appState,
+      creatorAuditLog: [
+        createCreatorAuditEntry({
+          creatorId,
+          affectedUserId: account.id,
+          fieldChanged,
+          oldValue: "previous saved value",
+          newValue: label,
+        }),
+        ...(appState.creatorAuditLog ?? []),
+      ].slice(0, 500),
+    });
+
+    await saveAccountState(account, nextState, {
+      title: `Creator Edit: ${label}`,
+      details: `Creator View saved ${label}.`,
+      type: "system_notice",
+    });
+  }
+
   async function saveRemoteState(account: RemoteAccount) {
     const state = getEditableState(account);
     const appState = createRemoteAppState(account, state);
@@ -471,7 +709,7 @@ export default function UsersPage() {
     await saveAccountState(account, appState, {
       title: "Support Adjustment Applied",
       details:
-        `Creator support updated XP to ${appState.totalXp}, streak to ${appState.streak}, ` +
+        `Creator support updated lifetime XP to ${appState.lifetimeXp}, spendable XP to ${appState.spendableXp}, total XP to ${appState.totalXp}, streak to ${appState.streak}, ` +
         `and stats to STR ${appState.stats.strength}, VIT ${appState.stats.vitality}, ` +
         `DIS ${appState.stats.discipline}, INT ${appState.stats.intelligence}, ` +
         `AGI ${appState.stats.agility}, MR ${appState.stats.magicResistance}.`,
@@ -557,6 +795,151 @@ export default function UsersPage() {
     }
   }
 
+  function handleMediaFile(file: File | null) {
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setMediaDraft((current) => ({
+        ...current,
+        fileUrl: result,
+        fileType: file.type || "application/octet-stream",
+        title: current.title || file.name,
+        altText: current.altText || file.name,
+      }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function saveCreatorMedia() {
+    if (!mediaDraft.fileUrl) return;
+
+    const targetAccounts =
+      mediaDraft.scope !== "user"
+        ? remoteAccounts
+        : remoteAccounts.filter((account) => account.id === mediaDraft.accountId);
+
+    if (targetAccounts.length === 0) {
+      setRemoteError(
+        mediaDraft.scope === "user"
+          ? "Choose a user before saving user-specific media."
+          : "No loaded player accounts are available for this media update."
+      );
+      return;
+    }
+
+    const creatorId = activeUserId ?? "creator";
+    const createdMedia = createCreatorMediaItem({
+      uploadedBy: creatorId,
+      targetType: mediaDraft.targetType,
+      targetId: mediaDraft.targetId.trim() || "default",
+      scope: mediaDraft.scope,
+      userId: mediaDraft.scope === "user" ? targetAccounts[0].id : null,
+      fileUrl: mediaDraft.fileUrl,
+      fileType: mediaDraft.fileType,
+      altText: mediaDraft.altText,
+      title: mediaDraft.title,
+    });
+
+    for (const account of targetAccounts) {
+      const appState = getAccountAppState(account);
+      const nextMedia =
+        mediaDraft.scope !== "user"
+          ? {
+              ...createdMedia,
+              id: `${createdMedia.id}-${account.id}`,
+              userId: null,
+            }
+          : {
+              ...createdMedia,
+              userId: account.id,
+            };
+
+      await saveAccountState(
+        account,
+        normalizeUserForToday({
+          ...appState,
+          mediaLibrary: [
+            nextMedia,
+            ...normalizeCreatorMediaLibrary(appState.mediaLibrary).filter(
+              (item) =>
+                !(
+                  item.targetType === nextMedia.targetType &&
+                  item.targetId === nextMedia.targetId &&
+                  item.scope === nextMedia.scope &&
+                  item.userId === nextMedia.userId
+                )
+            ),
+          ].slice(0, 300),
+          creatorAuditLog: [
+            createCreatorAuditEntry({
+              creatorId,
+              affectedUserId: account.id,
+              fieldChanged: `media.${nextMedia.targetType}.${nextMedia.targetId}`,
+              oldValue: "previous media",
+              newValue: nextMedia.title,
+            }),
+            ...(appState.creatorAuditLog ?? []),
+          ].slice(0, 500),
+        }),
+        {
+          title: `Creator Media Uploaded: ${nextMedia.title}`,
+          details: `Media applied to ${nextMedia.targetType}/${nextMedia.targetId} (${nextMedia.scope}).`,
+          type: "system_notice",
+        }
+      );
+    }
+
+    const supabase = getSupabaseBrowserClient();
+    if (supabase && authUser?.id) {
+      const mediaRows =
+        mediaDraft.scope === "global" || mediaDraft.scope === "fallback"
+          ? [
+              {
+                uploaded_by: authUser.id,
+                target_type: createdMedia.targetType,
+                target_id: createdMedia.targetId,
+                scope: createdMedia.scope,
+                user_id: null,
+                file_url: createdMedia.fileUrl,
+                file_type: createdMedia.fileType,
+                alt_text: createdMedia.altText,
+                title: createdMedia.title,
+              },
+            ]
+          : targetAccounts.map((account) => ({
+              uploaded_by: authUser.id,
+              target_type: createdMedia.targetType,
+              target_id: createdMedia.targetId,
+              scope: "user",
+              user_id: account.id,
+              file_url: createdMedia.fileUrl,
+              file_type: createdMedia.fileType,
+              alt_text: createdMedia.altText,
+              title: createdMedia.title,
+            }));
+      const auditRows = targetAccounts.map((account) => ({
+        creator_id: authUser.id,
+        affected_user_id: account.id,
+        field_changed: `media.${createdMedia.targetType}.${createdMedia.targetId}`,
+        old_value: "previous media",
+        new_value: createdMedia.title,
+      }));
+
+      await supabase.from("creator_media").insert(mediaRows);
+      await supabase.from("creator_audit_logs").insert(auditRows);
+    }
+
+    setMediaDraft((current) => ({
+      ...current,
+      fileUrl: "",
+      fileType: "",
+      title: "",
+      altText: "",
+    }));
+  }
+
   if (status !== "unconfigured") {
     if (!isCreator) {
       return (
@@ -586,11 +969,196 @@ export default function UsersPage() {
             </p>
           </div>
 
-          <ActionButton onClick={loadRemoteAccounts} variant="blue">
-            {remoteLoading ? "Refreshing..." : "Refresh"}
-          </ActionButton>
+          <div className="flex flex-wrap gap-2">
+            <ActionButton
+              onClick={() => setCreatorViewMode("player")}
+              variant={creatorViewMode === "player" ? "green" : "gray"}
+            >
+              Player View
+            </ActionButton>
+            <ActionButton
+              onClick={() => setCreatorViewMode("creator")}
+              variant={creatorViewMode === "creator" ? "purple" : "gray"}
+            >
+              Creator View
+            </ActionButton>
+            <ActionButton onClick={loadRemoteAccounts} variant="blue">
+              {remoteLoading ? "Refreshing..." : "Refresh"}
+            </ActionButton>
+          </div>
         </div>
 
+        {creatorViewMode === "player" && (
+          <PanelCard className="border-emerald-500">
+            <h2 className="text-xl text-emerald-200">Player View Active</h2>
+            <p className="text-zinc-300">
+              Use the normal navigation to experience the app as a player. Switch back to Creator View here when you need editing tools.
+            </p>
+          </PanelCard>
+        )}
+
+        {creatorViewMode === "creator" && (
+          <PanelCard className="border-purple-500">
+            <h2 className="text-xl text-purple-200">Creator Media Uploads</h2>
+            <p className="text-sm text-zinc-400">
+              Upload images, GIFs, short videos, or animation files as data URLs. User-specific media is saved to the selected player state. Global media is copied to all loaded player states.
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm text-zinc-300">
+                Scope
+                <select
+                  value={mediaDraft.scope}
+                  onChange={(event) =>
+                    setMediaDraft((current) => ({
+                      ...current,
+                      scope: event.target.value as CreatorMediaScope,
+                    }))
+                  }
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                >
+                  <option value="user">Selected user only</option>
+                  <option value="global">Apply globally</option>
+                  <option value="fallback">Fallback/default</option>
+                </select>
+              </label>
+
+              <label className="space-y-1 text-sm text-zinc-300">
+                Selected user
+                <select
+                  value={mediaDraft.accountId ?? ""}
+                  onChange={(event) =>
+                    setMediaDraft((current) => ({
+                      ...current,
+                      accountId: event.target.value || null,
+                    }))
+                  }
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                >
+                  <option value="">Choose user</option>
+                  {remoteAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.display_name || account.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1 text-sm text-zinc-300">
+                Target type
+                <select
+                  value={mediaDraft.targetType}
+                  onChange={(event) => {
+                    const type = event.target.value as CreatorMediaTargetType;
+                    const option = mediaTargetOptions.find((item) => item.type === type);
+                    setMediaDraft((current) => ({
+                      ...current,
+                      targetType: type,
+                      targetId: option?.defaultTargetId ?? current.targetId,
+                    }));
+                  }}
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                >
+                  {mediaTargetOptions.map((option) => (
+                    <option key={option.type} value={option.type}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1 text-sm text-zinc-300">
+                Target ID
+                <input
+                  value={mediaDraft.targetId}
+                  onChange={(event) =>
+                    setMediaDraft((current) => ({
+                      ...current,
+                      targetId: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                  placeholder="artifact id, rank, exercise name, default..."
+                />
+              </label>
+
+              <label className="space-y-1 text-sm text-zinc-300">
+                Title
+                <input
+                  value={mediaDraft.title}
+                  onChange={(event) =>
+                    setMediaDraft((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm text-zinc-300">
+                Alt text
+                <input
+                  value={mediaDraft.altText}
+                  onChange={(event) =>
+                    setMediaDraft((current) => ({
+                      ...current,
+                      altText: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                />
+              </label>
+            </div>
+
+            <input
+              type="file"
+              accept="image/*,video/*,.gif,.json"
+              onChange={(event) => handleMediaFile(event.target.files?.[0] ?? null)}
+              className="w-full"
+            />
+
+            {mediaDraft.fileUrl && (
+              <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
+                <p className="mb-2 text-sm text-zinc-400">Preview before publish</p>
+                {mediaDraft.fileType.startsWith("video/") ? (
+                  <video
+                    src={mediaDraft.fileUrl}
+                    className="max-h-64 w-full rounded object-contain"
+                    controls
+                  />
+                ) : mediaDraft.fileType.includes("json") ? (
+                  <pre className="max-h-64 overflow-auto text-xs text-zinc-300">
+                    {mediaDraft.fileUrl.slice(0, 1200)}
+                  </pre>
+                ) : (
+                  <div className="relative h-64 w-full">
+                    <Image
+                      src={mediaDraft.fileUrl}
+                      alt={mediaDraft.altText || "Media preview"}
+                      fill
+                      unoptimized
+                      sizes="(min-width: 768px) 720px, 100vw"
+                      className="rounded object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <ActionButton
+                onClick={saveCreatorMedia}
+                variant="purple"
+                disabled={!mediaDraft.fileUrl}
+              >
+                Save Media
+              </ActionButton>
+            </div>
+          </PanelCard>
+        )}
+
+        {creatorViewMode === "creator" && (
+          <>
         {remoteError && (
           <PanelCard className="border-red-500">
             <p className="text-red-300">{remoteError}</p>
@@ -716,22 +1284,21 @@ export default function UsersPage() {
                         Save Name
                       </ActionButton>
 
-                      <ActionButton
-                        onClick={() =>
-                          updateRemoteProfile(account.id, {
-                            role: account.role === "creator" ? "player" : "creator",
-                          })
-                        }
-                        variant={account.role === "creator" ? "red" : "green"}
-                        disabled={isPrimaryCreator}
-                      >
-                        {isPrimaryCreator
-                          ? "Primary Creator"
-                          : account.role === "creator"
-                          ? "Make Player"
-                          : "Make Creator"}
-                      </ActionButton>
-                    </div>
+                        <select
+                          value={account.role}
+                          onChange={(event) =>
+                            updateRemoteProfile(account.id, {
+                              role: event.target.value as RemoteProfile["role"],
+                            })
+                          }
+                          disabled={isPrimaryCreator}
+                          className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                        >
+                          <option value="player">Player</option>
+                          <option value="creator">Creator</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
 
                     <div className="flex flex-wrap gap-2">
                       <ActionButton
@@ -755,6 +1322,17 @@ export default function UsersPage() {
                         disabled={isPrimaryCreator}
                       >
                         Reject
+                      </ActionButton>
+                      <ActionButton
+                        onClick={() =>
+                          updateRemoteProfile(account.id, {
+                            account_status: "blocked",
+                          })
+                        }
+                        variant="red"
+                        disabled={isPrimaryCreator}
+                      >
+                        Block
                       </ActionButton>
                     </div>
 
@@ -795,6 +1373,31 @@ export default function UsersPage() {
                           >
                             Regenerate Special
                           </ActionButton>
+                          <ActionButton
+                            onClick={() =>
+                              updateAccountAppStateDraft(account.id, (record) => {
+                                const nextId =
+                                  Math.max(0, ...record.quests.map((quest) => quest.id)) + 1;
+                                const customQuest: Quest = {
+                                  id: nextId,
+                                  title: "Creator custom quest",
+                                  description: "Edited in Creator View.",
+                                  xp: 25,
+                                  completed: false,
+                                  awardedToday: false,
+                                  statRewards: { discipline: 1 },
+                                };
+
+                                return {
+                                  ...record,
+                                  quests: [...record.quests, customQuest],
+                                };
+                              })
+                            }
+                            variant="blue"
+                          >
+                            Add Quest
+                          </ActionButton>
                         </div>
                       </div>
 
@@ -804,9 +1407,35 @@ export default function UsersPage() {
                             key={quest.id}
                             className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2"
                           >
-                            <p className="text-sm font-semibold text-white">
-                              {quest.title}
-                            </p>
+                            <input
+                              value={quest.title}
+                              onChange={(event) =>
+                                updateAccountAppStateDraft(account.id, (record) => ({
+                                  ...record,
+                                  quests: record.quests.map((item) =>
+                                    item.id === quest.id
+                                      ? { ...item, title: event.target.value }
+                                      : item
+                                  ),
+                                }))
+                              }
+                              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm font-semibold text-white"
+                            />
+                            <textarea
+                              value={quest.description ?? ""}
+                              onChange={(event) =>
+                                updateAccountAppStateDraft(account.id, (record) => ({
+                                  ...record,
+                                  quests: record.quests.map((item) =>
+                                    item.id === quest.id
+                                      ? { ...item, description: event.target.value }
+                                      : item
+                                  ),
+                                }))
+                              }
+                              className="mt-2 min-h-16 w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-white"
+                              placeholder="Quest description"
+                            />
                             <p
                               className={`mt-1 text-xs ${
                                 quest.completed
@@ -816,17 +1445,259 @@ export default function UsersPage() {
                             >
                               {getQuestStatusLabel(quest.completed)} | {quest.xp} XP
                             </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                value={quest.xp}
+                                onChange={(event) =>
+                                  updateAccountAppStateDraft(account.id, (record) => ({
+                                    ...record,
+                                    quests: record.quests.map((item) =>
+                                      item.id === quest.id
+                                        ? { ...item, xp: toSafeNumber(Number(event.target.value)) }
+                                        : item
+                                    ),
+                                  }))
+                                }
+                                className="w-20 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-white"
+                              />
+                              <ActionButton
+                                onClick={() =>
+                                  updateAccountAppStateDraft(account.id, (record) => ({
+                                    ...record,
+                                    quests: record.quests.map((item) =>
+                                      item.id === quest.id
+                                        ? {
+                                            ...item,
+                                            completed: !item.completed,
+                                            awardedToday: item.completed
+                                              ? false
+                                              : item.awardedToday,
+                                          }
+                                        : item
+                                    ),
+                                  }))
+                                }
+                                variant={quest.completed ? "gray" : "green"}
+                              >
+                                {quest.completed ? "Reopen" : "Complete"}
+                              </ActionButton>
+                              <ActionButton
+                                onClick={() =>
+                                  updateAccountAppStateDraft(account.id, (record) => ({
+                                    ...record,
+                                    quests: record.quests.filter((item) => item.id !== quest.id),
+                                  }))
+                                }
+                                variant="red"
+                              >
+                                Delete
+                              </ActionButton>
+                            </div>
                           </div>
                         ))}
                       </div>
 
                       <div className="mt-3 rounded border border-purple-500/30 bg-purple-500/10 px-3 py-2">
-                        <p className="text-sm font-semibold text-purple-100">
-                          {accountAppState.specialQuest.title}
-                        </p>
-                        <p className="mt-1 text-xs text-purple-200">
-                          {accountAppState.specialQuest.status} | {accountAppState.specialQuest.xp} XP
-                        </p>
+                        <input
+                          value={accountAppState.specialQuest.title}
+                          onChange={(event) =>
+                            updateAccountAppStateDraft(account.id, (record) => ({
+                              ...record,
+                              specialQuest: {
+                                ...record.specialQuest,
+                                title: event.target.value,
+                              },
+                            }))
+                          }
+                          className="w-full rounded border border-purple-500/40 bg-zinc-900 px-2 py-1 text-sm font-semibold text-purple-100"
+                        />
+                        <textarea
+                          value={accountAppState.specialQuest.description}
+                          onChange={(event) =>
+                            updateAccountAppStateDraft(account.id, (record) => ({
+                              ...record,
+                              specialQuest: {
+                                ...record.specialQuest,
+                                description: event.target.value,
+                              },
+                            }))
+                          }
+                          className="mt-2 min-h-16 w-full rounded border border-purple-500/40 bg-zinc-900 px-2 py-1 text-sm text-purple-100"
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            value={accountAppState.specialQuest.xp}
+                            onChange={(event) =>
+                              updateAccountAppStateDraft(account.id, (record) => ({
+                                ...record,
+                                specialQuest: {
+                                  ...record.specialQuest,
+                                  xp: toSafeNumber(Number(event.target.value)),
+                                },
+                              }))
+                            }
+                            className="w-24 rounded border border-purple-500/40 bg-zinc-900 px-2 py-1 text-white"
+                          />
+                          <select
+                            value={accountAppState.specialQuest.status}
+                            onChange={(event) =>
+                              updateAccountAppStateDraft(account.id, (record) => ({
+                                ...record,
+                                specialQuest: {
+                                  ...record.specialQuest,
+                                  status: event.target.value as SpecialQuest["status"],
+                                  completed: event.target.value === "completed",
+                                },
+                              }))
+                            }
+                            className="rounded border border-purple-500/40 bg-zinc-900 px-2 py-1 text-white"
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="accepted">Accepted</option>
+                            <option value="urgent">Urgent</option>
+                            <option value="completed">Completed</option>
+                            <option value="waived">Waived</option>
+                          </select>
+                          <ActionButton
+                            onClick={() =>
+                              saveCreatorEditedState(
+                                account,
+                                "quests and special quest",
+                                "quests"
+                              )
+                            }
+                            variant="green"
+                          >
+                            Save Quests
+                          </ActionButton>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-zinc-800 pt-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                            Profile & Onboarding
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            Edits here update the same profile used by quests, diet, workout, and AI prompts.
+                          </p>
+                        </div>
+                        <ActionButton
+                          onClick={() =>
+                            saveCreatorEditedState(
+                              account,
+                              "profile and onboarding",
+                              "profile"
+                            )
+                          }
+                          variant="green"
+                        >
+                          Save Profile
+                        </ActionButton>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {profileTextFields.map((field) => (
+                          <label
+                            key={String(field.key)}
+                            className="space-y-1 text-sm text-zinc-300"
+                          >
+                            <span>{field.label}</span>
+                            <input
+                              value={String(accountAppState.profile[field.key] ?? "")}
+                              onChange={(event) =>
+                                updateAccountAppStateDraft(account.id, (record) => ({
+                                  ...record,
+                                  profile: {
+                                    ...record.profile,
+                                    [field.key]: event.target.value,
+                                  },
+                                }))
+                              }
+                              className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                            />
+                          </label>
+                        ))}
+
+                        {(["age", "heightCm", "weightKg", "availableMinutesWeekday", "availableMinutesWeekend", "sleepTargetHours"] as Array<keyof UserProfile>).map((field) => (
+                          <label
+                            key={String(field)}
+                            className="space-y-1 text-sm text-zinc-300"
+                          >
+                            <span>{String(field)}</span>
+                            <input
+                              type="number"
+                              value={Number(accountAppState.profile[field] ?? 0)}
+                              onChange={(event) =>
+                                updateAccountAppStateDraft(account.id, (record) => ({
+                                  ...record,
+                                  profile: {
+                                    ...record.profile,
+                                    [field]: Number(event.target.value),
+                                  },
+                                }))
+                              }
+                              className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                            />
+                          </label>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 text-sm text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={accountAppState.profile.onboardingCompleted}
+                            onChange={(event) =>
+                              updateAccountAppStateDraft(account.id, (record) => ({
+                                ...record,
+                                profile: {
+                                  ...record.profile,
+                                  onboardingCompleted: event.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          Onboarding complete
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={accountAppState.profile.wantsWorkoutPlan}
+                            onChange={(event) =>
+                              updateAccountAppStateDraft(account.id, (record) => ({
+                                ...record,
+                                profile: {
+                                  ...record.profile,
+                                  wantsWorkoutPlan: event.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          Workout support
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={accountAppState.profile.wantsDietSupport}
+                            onChange={(event) =>
+                              updateAccountAppStateDraft(account.id, (record) => ({
+                                ...record,
+                                profile: {
+                                  ...record.profile,
+                                  wantsDietSupport: event.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          Diet support
+                        </label>
                       </div>
                     </div>
 
@@ -870,6 +1741,263 @@ export default function UsersPage() {
                     </div>
 
                     <div className="border-t border-zinc-800 pt-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                            Artifacts & Active Effects
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            Inventory, active timers, World progress, and artifact status all save to the same player artifact state.
+                          </p>
+                        </div>
+                        <ActionButton
+                          onClick={() =>
+                            saveCreatorEditedState(
+                              account,
+                              "artifact inventory and active effects",
+                              "artifacts"
+                            )
+                          }
+                          variant="green"
+                        >
+                          Save Artifacts
+                        </ActionButton>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {artifactOrder.map((artifactKey) => {
+                          const artifact = normalizeArtifacts(
+                            accountAppState.artifacts
+                          ).find((item) => item.key === artifactKey);
+                          if (!artifact) return null;
+
+                          return (
+                            <div
+                              key={artifact.key}
+                              className="rounded border border-zinc-800 bg-zinc-900 p-3"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="font-medium text-white">
+                                    {artifact.symbol} {artifact.title}
+                                  </p>
+                                  <p className="text-xs uppercase tracking-wide text-zinc-500">
+                                    {artifact.rarity}
+                                  </p>
+                                </div>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={artifact.quantity}
+                                  onChange={(event) =>
+                                    updateAccountAppStateDraft(account.id, (record) => ({
+                                      ...record,
+                                      artifacts: normalizeArtifacts(record.artifacts).map((item) =>
+                                        item.key === artifact.key
+                                          ? {
+                                              ...item,
+                                              quantity: toSafeNumber(Number(event.target.value)),
+                                              unlocked: Number(event.target.value) > 0 || item.unlocked,
+                                              owned: Number(event.target.value) > 0 || item.owned,
+                                            }
+                                          : item
+                                      ),
+                                    }))
+                                  }
+                                  className="w-20 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-white"
+                                />
+                              </div>
+                              <select
+                                value={artifact.status}
+                                onChange={(event) =>
+                                  updateAccountAppStateDraft(account.id, (record) => ({
+                                    ...record,
+                                    artifacts: normalizeArtifacts(record.artifacts).map((item) =>
+                                      item.key === artifact.key
+                                        ? {
+                                            ...item,
+                                            status: event.target.value as Artifact["status"],
+                                            unlocked: item.unlocked || item.quantity > 0,
+                                            owned: item.owned || item.quantity > 0,
+                                          }
+                                        : item
+                                    ),
+                                  }))
+                                }
+                                className="mt-3 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                              >
+                                <option value="locked">Locked</option>
+                                <option value="available">Available</option>
+                                <option value="active">Active</option>
+                                <option value="used">Used</option>
+                                <option value="expired">Expired</option>
+                                <option value="completed">Completed</option>
+                                <option value="failed">Failed</option>
+                              </select>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-4 space-y-3">
+                        {normalizeActiveEffects(accountAppState.activeEffects).artifactEffects.length > 0 ? (
+                          normalizeActiveEffects(accountAppState.activeEffects).artifactEffects.map((effect) => {
+                            const meta = getArtifactMeta(effect.artifactId);
+                            const worldProgress =
+                              effect.artifactId === "world_completion"
+                                ? Number(effect.metadata.currentProgress ?? 0)
+                                : null;
+                            const worldRequired =
+                              effect.artifactId === "world_completion"
+                                ? Number(effect.metadata.requiredProgress ?? 30)
+                                : null;
+
+                            return (
+                              <div
+                                key={effect.id}
+                                className="rounded border border-yellow-500/30 bg-yellow-500/10 p-3"
+                              >
+                                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                  <div>
+                                    <p className="font-medium text-yellow-100">
+                                      {meta.title}
+                                    </p>
+                                    <p className="text-xs text-zinc-400">
+                                      {effect.effectType} | {effect.status}
+                                    </p>
+                                  </div>
+                                  <ActionButton
+                                    onClick={() => {
+                                      if (!window.confirm(`Remove active effect ${meta.title}?`)) return;
+                                      updateAccountAppStateDraft(account.id, (record) => ({
+                                        ...record,
+                                        activeEffects: {
+                                          ...normalizeActiveEffects(record.activeEffects),
+                                          artifactEffects: normalizeActiveEffects(record.activeEffects).artifactEffects.filter(
+                                            (item) => item.id !== effect.id
+                                          ),
+                                        },
+                                      }));
+                                    }}
+                                    variant="red"
+                                  >
+                                    Remove Effect
+                                  </ActionButton>
+                                </div>
+
+                                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                  <label className="space-y-1 text-sm text-zinc-300">
+                                    Status
+                                    <select
+                                      value={effect.status}
+                                      onChange={(event) =>
+                                        updateAccountAppStateDraft(account.id, (record) => ({
+                                          ...record,
+                                          activeEffects: {
+                                            ...normalizeActiveEffects(record.activeEffects),
+                                            artifactEffects: normalizeActiveEffects(record.activeEffects).artifactEffects.map((item) =>
+                                              item.id === effect.id
+                                                ? {
+                                                    ...item,
+                                                    status: event.target.value as ActiveArtifactEffect["status"],
+                                                    updatedAt: new Date().toISOString(),
+                                                  }
+                                                : item
+                                            ),
+                                          },
+                                        }))
+                                      }
+                                      className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                                    >
+                                      <option value="active">Active</option>
+                                      <option value="completed">Completed</option>
+                                      <option value="failed">Failed</option>
+                                      <option value="expired">Expired</option>
+                                      <option value="cancelled">Cancelled</option>
+                                    </select>
+                                  </label>
+                                  <label className="space-y-1 text-sm text-zinc-300">
+                                    Expires at
+                                    <input
+                                      value={effect.expiresAt ?? ""}
+                                      onChange={(event) =>
+                                        updateAccountAppStateDraft(account.id, (record) => ({
+                                          ...record,
+                                          activeEffects: {
+                                            ...normalizeActiveEffects(record.activeEffects),
+                                            artifactEffects: normalizeActiveEffects(record.activeEffects).artifactEffects.map((item) =>
+                                              item.id === effect.id
+                                                ? {
+                                                    ...item,
+                                                    expiresAt: event.target.value || null,
+                                                    updatedAt: new Date().toISOString(),
+                                                  }
+                                                : item
+                                            ),
+                                          },
+                                        }))
+                                      }
+                                      className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                                    />
+                                  </label>
+                                  {worldProgress !== null && worldRequired !== null && (
+                                    <label className="space-y-1 text-sm text-zinc-300">
+                                      World progress
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max={worldRequired}
+                                        value={worldProgress}
+                                        onChange={(event) =>
+                                          updateAccountAppStateDraft(account.id, (record) => ({
+                                            ...record,
+                                            activeEffects: {
+                                              ...normalizeActiveEffects(record.activeEffects),
+                                              artifactEffects: normalizeActiveEffects(record.activeEffects).artifactEffects.map((item) =>
+                                                item.id === effect.id
+                                                  ? {
+                                                      ...item,
+                                                      metadata: {
+                                                        ...item.metadata,
+                                                        currentProgress: Math.max(
+                                                          0,
+                                                          Math.min(
+                                                            worldRequired,
+                                                            Number(event.target.value)
+                                                          )
+                                                        ),
+                                                        streakDaysCounted: Math.max(
+                                                          0,
+                                                          Math.min(
+                                                            worldRequired,
+                                                            Number(event.target.value)
+                                                          )
+                                                        ),
+                                                      },
+                                                      updatedAt: new Date().toISOString(),
+                                                    }
+                                                  : item
+                                              ),
+                                            },
+                                          }))
+                                        }
+                                        className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="rounded border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-400">
+                            No active artifact effects.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-zinc-800 pt-4">
                       <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
                         Support Note
                       </p>
@@ -891,11 +2019,148 @@ export default function UsersPage() {
                         </ActionButton>
                       </div>
                     </div>
+
+                    <div className="border-t border-zinc-800 pt-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                            Advanced System Editors
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            JSON editors for nested systems. Invalid JSON is rejected before it changes the player record.
+                          </p>
+                        </div>
+                        <ActionButton
+                          onClick={() =>
+                            saveCreatorEditedState(
+                              account,
+                              "advanced nested data",
+                              "advanced_json"
+                            )
+                          }
+                          variant="green"
+                        >
+                          Save Advanced Data
+                        </ActionButton>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 md:grid-cols-2">
+                        {[
+                          {
+                            label: "Workout plan",
+                            value: accountAppState.workoutProgram,
+                            apply: (record: UserRecord, parsed: unknown) => ({
+                              ...record,
+                              workoutProgram: parsed as UserRecord["workoutProgram"],
+                            }),
+                          },
+                          {
+                            label: "Tasks and task history",
+                            value: {
+                              householdTasks: accountAppState.householdTasks,
+                              taskHistory: accountAppState.taskHistory,
+                            },
+                            apply: (record: UserRecord, parsed: unknown) => {
+                              const value = parsed as Pick<UserRecord, "householdTasks" | "taskHistory">;
+                              return {
+                                ...record,
+                                householdTasks: Array.isArray(value.householdTasks)
+                                  ? value.householdTasks
+                                  : record.householdTasks,
+                                taskHistory: Array.isArray(value.taskHistory)
+                                  ? value.taskHistory
+                                  : record.taskHistory,
+                              };
+                            },
+                          },
+                          {
+                            label: "Diet logs and feedback",
+                            value: {
+                              foodJournal: accountAppState.foodJournal,
+                              dietFeedback: accountAppState.dietFeedback,
+                            },
+                            apply: (record: UserRecord, parsed: unknown) => {
+                              const value = parsed as Pick<UserRecord, "foodJournal" | "dietFeedback">;
+                              return {
+                                ...record,
+                                foodJournal: Array.isArray(value.foodJournal)
+                                  ? value.foodJournal
+                                  : record.foodJournal,
+                                dietFeedback: Array.isArray(value.dietFeedback)
+                                  ? value.dietFeedback
+                                  : record.dietFeedback,
+                              };
+                            },
+                          },
+                          {
+                            label: "Workout journal",
+                            value: accountAppState.workoutJournal,
+                            apply: (record: UserRecord, parsed: unknown) => ({
+                              ...record,
+                              workoutJournal: Array.isArray(parsed)
+                                ? (parsed as UserRecord["workoutJournal"])
+                                : record.workoutJournal,
+                            }),
+                          },
+                          {
+                            label: "System log",
+                            value: accountAppState.log,
+                            apply: (record: UserRecord, parsed: unknown) => ({
+                              ...record,
+                              log: Array.isArray(parsed)
+                                ? (parsed as UserRecord["log"])
+                                : record.log,
+                            }),
+                          },
+                          {
+                            label: "AI analysis and weekly plan",
+                            value: {
+                              aiAnalysis: accountAppState.aiAnalysis,
+                              aiWeeklyPlan: accountAppState.aiWeeklyPlan,
+                            },
+                            apply: (record: UserRecord, parsed: unknown) => {
+                              const value = parsed as Pick<UserRecord, "aiAnalysis" | "aiWeeklyPlan">;
+                              return {
+                                ...record,
+                                aiAnalysis:
+                                  "aiAnalysis" in value ? value.aiAnalysis : record.aiAnalysis,
+                                aiWeeklyPlan:
+                                  "aiWeeklyPlan" in value ? value.aiWeeklyPlan : record.aiWeeklyPlan,
+                              };
+                            },
+                          },
+                        ].map((editor) => (
+                          <label
+                            key={editor.label}
+                            className="space-y-2 text-sm text-zinc-300"
+                          >
+                            <span>{editor.label}</span>
+                            <textarea
+                              defaultValue={safeJson(editor.value)}
+                              onBlur={(event) => {
+                                const parsed = parseJsonOrNull(event.target.value);
+                                if (parsed === null) {
+                                  setRemoteError(`Invalid JSON in ${editor.label}.`);
+                                  return;
+                                }
+                                setRemoteError(null);
+                                updateAccountAppStateDraft(account.id, (record) =>
+                                  editor.apply(record, parsed)
+                                );
+                              }}
+                              className="min-h-48 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-white"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </PanelCard>
               );
             })}
           </div>
+        )}
+          </>
         )}
       </div>
     );

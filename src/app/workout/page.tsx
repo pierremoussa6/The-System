@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../store";
+import { getMediaForTarget } from "../creator-media";
 import { getPersonalization } from "../quest-engine";
 import { buildWorkoutProgram } from "../workout-system";
 import type { AiWeeklyPlan, UserProfile } from "../types";
@@ -12,12 +14,50 @@ import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
 import ActionButton from "../components/ActionButton";
 import CollapsibleSection from "../components/CollapsibleSection";
+import CreatorMediaBanner from "../components/CreatorMediaBanner";
 import type {
+  CreatorMediaItem,
   WorkoutJournalEntry,
   WorkoutProgramExercise,
   WorkoutProgramPhase,
   WorkoutProgramSession,
 } from "../types";
+
+function ExerciseMedia({ media }: { media: CreatorMediaItem | null }) {
+  if (!media) return null;
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
+      {media.fileType.startsWith("video/") ? (
+        <video
+          src={media.fileUrl}
+          className="max-h-72 w-full object-cover"
+          muted
+          playsInline
+          loop
+          controls
+        />
+      ) : (
+        <div className="relative h-56 w-full">
+          <Image
+            src={media.fileUrl}
+            alt={media.altText || media.title}
+            fill
+            unoptimized
+            sizes="(min-width: 768px) 640px, 100vw"
+            className="object-cover"
+          />
+        </div>
+      )}
+      {(media.title || media.altText) && (
+        <div className="border-t border-zinc-800 px-3 py-2 text-sm">
+          {media.title && <p className="text-zinc-200">{media.title}</p>}
+          {media.altText && <p className="text-zinc-400">{media.altText}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ExerciseQuickLog({
   phase,
@@ -88,6 +128,8 @@ export default function WorkoutPage() {
     aiWeeklyPlan,
     workoutProgram,
     workoutJournal,
+    activeUser,
+    mediaLibrary,
     addWorkoutJournalEntry,
     regenerateSpecialQuest,
     updateProfile,
@@ -141,6 +183,9 @@ export default function WorkoutPage() {
     ? getPersonalization(aiAnalysis, profile)
     : null;
   const program = workoutProgram ?? buildWorkoutProgram(profile, totalXp, aiAnalysis);
+  const workoutBanner = activeUser
+    ? getMediaForTarget(mediaLibrary, "workout_banner", "default", activeUser.id)
+    : null;
   const previousEntryByExercise = new Map<string, WorkoutJournalEntry>();
 
   for (const entry of workoutJournal) {
@@ -251,6 +296,8 @@ export default function WorkoutPage() {
 
   return (
     <div className="space-y-6">
+      <CreatorMediaBanner media={workoutBanner} />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl text-blue-400">Workout</h1>
         <div className="hidden flex-wrap gap-3 md:flex">
@@ -407,6 +454,18 @@ export default function WorkoutPage() {
                             {item.sets} sets x {item.reps} · Rest {item.restSeconds}s
                           </p>
                           <p className="mt-1 text-sm text-zinc-400">{item.notes}</p>
+                          <ExerciseMedia
+                            media={
+                              activeUser
+                                ? getMediaForTarget(
+                                    mediaLibrary,
+                                    "exercise_media",
+                                    item.name,
+                                    activeUser.id
+                                  )
+                                : null
+                            }
+                          />
                           <ExerciseQuickLog
                             phase={phase}
                             session={session}

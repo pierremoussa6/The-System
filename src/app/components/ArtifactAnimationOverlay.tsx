@@ -1,12 +1,16 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, type CSSProperties } from "react";
 import { getArtifactMeta, getArtifactRarityClasses } from "../artifacts";
-import type { ArtifactActionResult, Stats } from "../types";
+import { getMediaForTarget } from "../creator-media";
+import type { ArtifactActionResult, CreatorMediaItem, Stats } from "../types";
 import ActionButton from "./ActionButton";
 
 type ArtifactAnimationOverlayProps = {
   event: ArtifactActionResult | null;
+  mediaLibrary?: CreatorMediaItem[];
+  userId?: string | null;
   onDone: () => void;
 };
 
@@ -247,6 +251,8 @@ function renderRewardReveal(event: ArtifactActionResult) {
 
 export default function ArtifactAnimationOverlay({
   event,
+  mediaLibrary,
+  userId,
   onDone,
 }: ArtifactAnimationOverlayProps) {
   useEffect(() => {
@@ -261,6 +267,12 @@ export default function ArtifactAnimationOverlay({
   if (!event) return null;
 
   const meta = getArtifactMeta(event.artifactId);
+  const activationMedia = getMediaForTarget(
+    mediaLibrary,
+    event.eventType === "purchase" ? "artifact_reward" : "artifact_activation",
+    event.artifactId,
+    userId
+  );
 
   return (
     <div className="artifact-animation-overlay" role="status" aria-live="polite">
@@ -283,6 +295,30 @@ export default function ArtifactAnimationOverlay({
           </div>
 
           {renderArtifactScene(event)}
+
+          {activationMedia && (
+            <div className="relative mx-auto h-40 w-full max-w-md overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950">
+              {activationMedia.fileType.startsWith("video/") ? (
+                <video
+                  src={activationMedia.fileUrl}
+                  className="h-full w-full object-cover"
+                  muted
+                  playsInline
+                  loop
+                  autoPlay
+                />
+              ) : (
+                <Image
+                  src={activationMedia.fileUrl}
+                  alt={activationMedia.altText || activationMedia.title || meta.title}
+                  fill
+                  unoptimized
+                  sizes="(min-width: 768px) 448px, 100vw"
+                  className="object-cover"
+                />
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <p className="text-lg text-white">{event.message}</p>

@@ -20,17 +20,20 @@ import {
   interestCategoryLabels,
   questRotationPreferenceLabels,
 } from "../quest-engine";
+import { getMediaForTarget } from "../creator-media";
 import {
   getAchievementSummary,
   getAchievementTierClasses,
   getRecentUnlockedAchievements,
 } from "../achievements";
+import { getActiveArtifactEffects, getWorldChallengeSummary } from "../artifacts";
 import type { AiWeeklyPlan } from "../types";
 import { formatRewardText } from "../reward-system";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
 import ActionButton from "../components/ActionButton";
+import CreatorMediaBanner from "../components/CreatorMediaBanner";
 
 export default function DashboardPage() {
   const {
@@ -52,6 +55,8 @@ export default function DashboardPage() {
     aiWeeklyPlan,
     funSpecialActivities,
     dailyHp,
+    activeEffects,
+    mediaLibrary,
     previewSpecialQuests,
     regenerateSpecialQuest,
     generateFunSpecialActivity,
@@ -137,6 +142,16 @@ export default function DashboardPage() {
   const canCompleteSpecialQuest =
     !specialQuest.completed && !specialQuest.awardedToday;
   const recoveryModeActive = typeof dailyHp === "number" && dailyHp < 50;
+  const worldEffect = getActiveArtifactEffects(activeEffects).find(
+    (effect) => effect.artifactId === "world_completion"
+  );
+  const worldSummary = worldEffect ? getWorldChallengeSummary(worldEffect) : null;
+  const dashboardBanner = getMediaForTarget(
+    mediaLibrary,
+    "dashboard_banner",
+    "default",
+    activeUser.id
+  );
 
   const currentRank = getSystemRank(totalXp, stats);
   const currentRankLabel = getRankLabel(currentRank);
@@ -157,7 +172,32 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <CreatorMediaBanner media={dashboardBanner} />
+
       <h1 className="mb-6 text-3xl text-blue-400">Dashboard</h1>
+
+      {worldSummary && (
+        <PanelCard className="border-emerald-500">
+          <SectionTitle
+            title="The World's Completion"
+            colorClass="text-emerald-400"
+            subtitle="30-day challenge progress loaded from active artifact state."
+          />
+          <div className="h-2 overflow-hidden rounded bg-zinc-800">
+            <div
+              className="h-full rounded bg-emerald-400"
+              style={{
+                width: `${Math.round(
+                  (worldSummary.currentProgress / worldSummary.requiredProgress) * 100
+                )}%`,
+              }}
+            />
+          </div>
+          <p className="text-sm text-emerald-200">
+            {worldSummary.currentProgress}/{worldSummary.requiredProgress} streak days counted
+          </p>
+        </PanelCard>
+      )}
 
       <PanelCard className={recoveryModeActive ? "border-emerald-500" : "border-cyan-500"}>
         <SectionTitle title="Daily HP Check" colorClass="text-cyan-400" />

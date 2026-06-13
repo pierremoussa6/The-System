@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../store";
 import {
@@ -10,9 +11,11 @@ import {
   getArtifactRarityClasses,
   getArtifactTypeLabels,
   getArtifactUnlockProgress,
+  getWorldChallengeSummary,
   isPurchasableAvailability,
 } from "../artifacts";
 import type { Artifact, ArtifactActionResult, Stats } from "../types";
+import { getMediaForTarget } from "../creator-media";
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import ActionButton from "../components/ActionButton";
@@ -120,6 +123,7 @@ export default function ArtifactsPage() {
     lifetimeXp,
     totalXp,
     spendableXp,
+    mediaLibrary,
     activateArtifact,
     purchaseArtifact,
   } = useApp();
@@ -292,6 +296,14 @@ export default function ArtifactsPage() {
     const purchasable = isPurchasableAvailability(meta.availability);
     const activationBlocked = isActivationBlocked(artifact);
     const locked = !artifact.unlocked && mode === "inventory";
+    const cardMedia = activeUser
+      ? getMediaForTarget(
+          mediaLibrary,
+          "artifact_card",
+          artifact.key,
+          activeUser.id
+        )
+      : null;
 
     return (
       <div
@@ -319,13 +331,35 @@ export default function ArtifactsPage() {
         </div>
 
         <div
-          className={`my-4 flex h-28 items-center justify-center rounded border border-zinc-800 bg-zinc-950 ${
+          className={`relative my-4 flex h-28 items-center justify-center rounded border border-zinc-800 bg-zinc-950 ${
             locked ? "blur-[1px]" : ""
           }`}
         >
-          <div className={`text-5xl font-black ${locked ? "text-zinc-700" : styles.text}`}>
-            {locked ? "???" : artifact.symbol}
-          </div>
+          {!locked && cardMedia ? (
+            cardMedia.fileType.startsWith("video/") ? (
+              <video
+                src={cardMedia.fileUrl}
+                className="h-full w-full rounded object-cover"
+                muted
+                playsInline
+                loop
+                autoPlay
+              />
+            ) : (
+              <Image
+                src={cardMedia.fileUrl}
+                alt={cardMedia.altText || artifact.title}
+                fill
+                unoptimized
+                sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw"
+                className="rounded object-cover"
+              />
+            )
+          ) : (
+            <div className={`text-5xl font-black ${locked ? "text-zinc-700" : styles.text}`}>
+              {locked ? "???" : artifact.symbol}
+            </div>
+          )}
         </div>
 
         <p className="min-h-12 text-sm text-zinc-300">
@@ -462,6 +496,35 @@ export default function ArtifactsPage() {
                 >
                   <p className="font-medium text-yellow-100">{meta.title}</p>
                   <p className="mt-1 text-sm text-zinc-300">{meta.effectLabel}</p>
+                  {effect.artifactId === "world_completion" && (
+                    <div className="mt-3">
+                      {(() => {
+                        const summary = getWorldChallengeSummary(effect);
+                        const percent =
+                          summary.requiredProgress > 0
+                            ? Math.round(
+                                (summary.currentProgress /
+                                  summary.requiredProgress) *
+                                  100
+                              )
+                            : 0;
+
+                        return (
+                          <>
+                            <div className="h-2 overflow-hidden rounded bg-zinc-800">
+                              <div
+                                className="h-full rounded bg-emerald-400"
+                                style={{ width: `${percent}%` }}
+                              />
+                            </div>
+                            <p className="mt-1 text-sm text-emerald-200">
+                              {summary.currentProgress}/{summary.requiredProgress} streak days counted
+                            </p>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
                   <p className="mt-2 text-sm text-yellow-200">
                     {formatRemaining(effect.expiresAt, nowMs)}
                   </p>
@@ -672,6 +735,8 @@ export default function ArtifactsPage() {
 
       <ArtifactAnimationOverlay
         event={animationEvent}
+        mediaLibrary={mediaLibrary}
+        userId={activeUser?.id ?? null}
         onDone={dismissAnimation}
       />
     </div>

@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useApp } from "../store";
+import { getMediaForTarget } from "../creator-media";
 import {
   CartesianGrid,
   Legend,
@@ -19,7 +20,9 @@ import {
 import PanelCard from "../components/PanelCard";
 import SectionTitle from "../components/SectionTitle";
 import StatCard from "../components/StatCard";
+import CreatorMediaBanner from "../components/CreatorMediaBanner";
 import { calculateLevel, getBuildFromStats } from "../logic";
+import { getActiveArtifactEffects, getWorldChallengeSummary } from "../artifacts";
 import { getSystemRank, getRankLabel } from "../rank-system";
 import type { HistoryEntry, Stats } from "../types";
 
@@ -139,7 +142,16 @@ function getRadarTicks(radarMax: number) {
 }
 
 export default function ProgressPage() {
-  const { isLoaded, stats, totalXp, streak, history } = useApp();
+  const {
+    isLoaded,
+    stats,
+    totalXp,
+    streak,
+    history,
+    activeEffects,
+    activeUser,
+    mediaLibrary,
+  } = useApp();
 
   const build = getBuildFromStats(stats);
   const { level } = calculateLevel(totalXp);
@@ -188,6 +200,13 @@ export default function ProgressPage() {
   }, [displayHistory]);
 
   const hasEnoughHistory = displayHistory.length >= 2;
+  const worldEffect = getActiveArtifactEffects(activeEffects).find(
+    (effect) => effect.artifactId === "world_completion"
+  );
+  const worldSummary = worldEffect ? getWorldChallengeSummary(worldEffect) : null;
+  const progressBanner = activeUser
+    ? getMediaForTarget(mediaLibrary, "progress_banner", "default", activeUser.id)
+    : null;
 
   if (!isLoaded) {
     return (
@@ -202,7 +221,37 @@ export default function ProgressPage() {
 
   return (
     <div className="space-y-6">
+      <CreatorMediaBanner media={progressBanner} />
+
       <h1 className="mb-6 text-3xl text-blue-400">Progress</h1>
+
+      {worldSummary && (
+        <PanelCard className="border-emerald-500">
+          <SectionTitle
+            title="The World's Completion"
+            colorClass="text-emerald-400"
+            subtitle="Persistent 30-day challenge progress."
+          />
+          <div className="h-3 overflow-hidden rounded bg-zinc-800">
+            <div
+              className="h-full rounded bg-emerald-400"
+              style={{
+                width: `${Math.round(
+                  (worldSummary.currentProgress / worldSummary.requiredProgress) * 100
+                )}%`,
+              }}
+            />
+          </div>
+          <p className="text-sm text-emerald-200">
+            {worldSummary.currentProgress}/{worldSummary.requiredProgress} streak days counted
+          </p>
+          {worldSummary.targetCompletionDate && (
+            <p className="text-sm text-zinc-400">
+              Target date: {worldSummary.targetCompletionDate}
+            </p>
+          )}
+        </PanelCard>
+      )}
 
       <PanelCard className="border-blue-500">
         <SectionTitle
