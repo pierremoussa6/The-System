@@ -214,21 +214,6 @@ export async function GET(request: Request) {
     });
   }
 
-  const { data: sentLogs, error: sentLogsError } = await supabase
-    .from("reminder_logs")
-    .select("user_id")
-    .eq("reminder_date", stockholmDate)
-    .eq("channel", "email")
-    .in("user_id", userIds);
-
-  if (sentLogsError) {
-    return NextResponse.json({ error: sentLogsError.message }, { status: 500 });
-  }
-
-  const alreadySent = new Set(
-    ((sentLogs ?? []) as Array<{ user_id: string }>).map((log) => log.user_id)
-  );
-
   const { data: states, error: statesError } = await supabase
     .from("user_state")
     .select("user_id,app_state_json")
@@ -255,11 +240,6 @@ export async function GET(request: Request) {
   };
 
   for (const profile of profileRows) {
-    if (alreadySent.has(profile.id)) {
-      results.skipped += 1;
-      continue;
-    }
-
     const user = stateByUserId.get(profile.id);
 
     if (!user || !getIncompleteQuestSummary(user).isIncomplete) {
@@ -273,16 +253,6 @@ export async function GET(request: Request) {
         name: profile.display_name || user.profile.name || "Hunter",
         user,
       });
-
-      const { error: logError } = await supabase.from("reminder_logs").insert({
-        user_id: profile.id,
-        reminder_date: stockholmDate,
-        channel: "email",
-      });
-
-      if (logError) {
-        throw logError;
-      }
 
       results.sent += 1;
     } catch (error) {
