@@ -17,6 +17,7 @@ import type {
   ArtifactActionResult,
   ArtifactKey,
   ActiveEffects,
+  CreatorMediaItem,
   DietFeedback,
   FoodJournalEntry,
   HouseholdTaskInput,
@@ -104,6 +105,7 @@ import { createCompactAppState } from "./state-persistence";
 const STORAGE_KEY = "the-system-multi-user-data";
 const SAVE_DELAY_MS = 600;
 const REMOTE_STATE_LOAD_TIMEOUT_MS = 12_000;
+const VISIBLE_MEDIA_LOAD_TIMEOUT_MS = 10_000;
 const FULL_REMOTE_STATE_SELECT =
   "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magic_resistance,daily_hp,daily_hp_date,ai_analysis_json,ai_weekly_plan_json,workout_program_json,ai_quest_index,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at";
 const MINIMAL_REMOTE_STATE_SELECT =
@@ -658,6 +660,7 @@ function useClientReady() {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { status: authStatus, user: authUser, profile: authProfile } = useAuth();
   const [data, setData] = useState<MultiUserData>(() => loadInitialMultiUserData());
+  const [remoteMediaLibrary, setRemoteMediaLibrary] = useState<CreatorMediaItem[]>([]);
   const [remoteLoadedUserId, setRemoteLoadedUserId] = useState<string | null>(
     null
   );
@@ -673,6 +676,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!clientReady) return;
     saveLocalMultiUserData(data);
   }, [clientReady, data]);
+
+  useEffect(() => {
+    if (!clientReady) return;
+
+    let isMounted = true;
+
+    async function loadVisibleMedia() {
+      try {
+        const headers: HeadersInit = {};
+        const supabase = getSupabaseBrowserClient();
+
+        if (supabase) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData.session?.access_token;
+
+          if (token) {
+            headers.Authorization = `Bearer ${token}`;
+          }
+        }
+
+        const response = await withTimeout(
+          fetch("/api/media", {
+            headers,
+            cache: "no-store",
+          }),
+          VISIBLE_MEDIA_LOAD_TIMEOUT_MS,
+          "Timed out while loading creator media."
+        );
+
+        if (!response.ok) {
+          throw new Error("Creator media could not be loaded.");
+        }
+
+        const body = (await response.json()) as {
+          media?: CreatorMediaItem[];
+        };
+
+        if (isMounted) {
+          setRemoteMediaLibrary(normalizeCreatorMediaLibrary(body.media));
+        }
+      } catch (error) {
+        console.error("Failed to load creator media", error);
+
+        if (isMounted) {
+          setRemoteMediaLibrary([]);
+        }
+      }
+    }
+
+    void loadVisibleMedia();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authStatus, authUser?.id, clientReady]);
 
   useEffect(() => {
     if (!clientReady || !isUsingRemoteState || !authUser) {
@@ -783,6 +841,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const activeUser =
     data.users.find((user) => user.id === data.activeUserId) ?? null;
+  const visibleMediaLibrary = normalizeCreatorMediaLibrary([
+    ...remoteMediaLibrary,
+    ...(activeUser?.mediaLibrary ?? []),
+  ]);
 
   function updateActiveUser(
     updater: (user: UserRecord) => UserRecord,
@@ -2546,7 +2608,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         artifacts: activeUser?.artifacts ?? [],
         activeEffects: activeUser?.activeEffects ?? createDefaultActiveEffects(),
         artifactHistory: activeUser?.artifactHistory ?? [],
-        mediaLibrary: activeUser?.mediaLibrary ?? [],
+        mediaLibrary: visibleMediaLibrary,
         creatorAuditLog: activeUser?.creatorAuditLog ?? [],
         dailyHp: activeUser?.dailyHp ?? null,
         dailyHpDate: activeUser?.dailyHpDate ?? null,

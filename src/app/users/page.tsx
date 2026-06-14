@@ -12,7 +12,6 @@ import { getSystemRank } from "../rank-system";
 import { artifactOrder, getArtifactMeta, normalizeActiveEffects, normalizeArtifacts } from "../artifacts";
 import {
   createCreatorAuditEntry,
-  createCreatorMediaItem,
   normalizeCreatorMediaLibrary,
 } from "../creator-media";
 import type {
@@ -149,12 +148,17 @@ const mediaTargetOptions: Array<{
 const primaryCreatorEmail = "pierremoussa6@gmail.com";
 const CREATOR_REMOTE_TIMEOUT_MS = 12_000;
 const CREATOR_MEDIA_MAX_BYTES = 900_000;
-const FULL_CREATOR_STATE_SELECT =
-  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at";
-const MINIMAL_CREATOR_STATE_SELECT =
-  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,updated_at";
-const LEGACY_CREATOR_STATE_SELECT =
-  "user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,daily_hp,daily_hp_date,updated_at";
+
+type CreatorAccountsResponse = {
+  accounts?: RemoteAccount[];
+  notifications?: AdminNotification[];
+  error?: string;
+};
+
+type CreatorMediaResponse = {
+  media?: unknown;
+  error?: string;
+};
 
 function toSafeNumber(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -168,6 +172,29 @@ function formatFileSize(bytes: number) {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function isArtifactMediaTarget(type: CreatorMediaTargetType) {
+  return type.startsWith("artifact_");
+}
+
+async function getCreatorAuthHeaders() {
+  const supabase = getSupabaseBrowserClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+
+  if (!token) {
+    throw new Error("Sign in again before using creator tools.");
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
 }
 
 function getEditableState(account: RemoteAccount): RemoteUserState {
@@ -361,6 +388,7 @@ export default function UsersPage() {
   const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [creatorNotice, setCreatorNotice] = useState<string | null>(null);
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({});
   const [creatorViewMode, setCreatorViewMode] = useState<"player" | "creator">("creator");
   const [mediaDraft, setMediaDraft] = useState<{
@@ -376,7 +404,7 @@ export default function UsersPage() {
     accountId: null,
     targetType: "artifact_card",
     targetId: "fool_last_trick",
-    scope: "user",
+    scope: "global",
     title: "",
     altText: "",
     fileUrl: "",
@@ -386,109 +414,30 @@ export default function UsersPage() {
   const loadRemoteAccounts = useCallback(async () => {
     if (status === "unconfigured" || !isCreator) return;
 
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-
     setRemoteLoading(true);
     setRemoteError(null);
 
     try {
-      const profilesQuery = await withTimeout(
-        supabase
-          .from("profiles")
-          .select("id,email,display_name,role,account_status,timezone,reminders_enabled,created_at")
-          .order("created_at", { ascending: false }),
+      const headers = await getCreatorAuthHeaders();
+      const response = await withTimeout(
+        fetch("/api/creator/accounts", {
+          headers,
+          cache: "no-store",
+        }),
         CREATOR_REMOTE_TIMEOUT_MS,
         "Timed out while loading account profiles."
       );
 
-      if (profilesQuery.error) {
-        throw new Error(profilesQuery.error.message);
+      const body = (await response.json().catch(() => ({}))) as CreatorAccountsResponse;
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "The creator account list could not be loaded.");
       }
 
-      const profileRows = (profilesQuery.data ?? []) as RemoteProfile[];
-      const profileIds = profileRows.map((profile) => profile.id);
-      let states: unknown[] = [];
-      let stateLoadError: string | null = null;
-      let stateLoadDegraded = false;
-
-      if (profileIds.length) {
-        const stateSelections = [
-          FULL_CREATOR_STATE_SELECT,
-          MINIMAL_CREATOR_STATE_SELECT,
-          LEGACY_CREATOR_STATE_SELECT,
-        ];
-
-        for (const select of stateSelections) {
-          try {
-            const stateQuery = await withTimeout(
-              supabase
-                .from("user_state")
-                .select(select)
-                .in("user_id", profileIds),
-              CREATOR_REMOTE_TIMEOUT_MS,
-              "Timed out while loading saved account state."
-            );
-
-            if (!stateQuery.error) {
-              states = stateQuery.data ?? [];
-              stateLoadDegraded = select !== FULL_CREATOR_STATE_SELECT;
-              break;
-            }
-
-            stateLoadError = stateQuery.error.message;
-          } catch (error) {
-            stateLoadError = getErrorMessage(
-              error,
-              "Failed to load saved account state."
-            );
-          }
-        }
-      }
-
-      const stateByUserId = new Map(
-        ((states ?? []) as RemoteUserState[]).map((state) => [
-          state.user_id,
-          state,
-        ])
+      setRemoteAccounts(Array.isArray(body.accounts) ? body.accounts : []);
+      setAdminNotifications(
+        Array.isArray(body.notifications) ? body.notifications : []
       );
-
-      setRemoteAccounts(
-        profileRows.map((profile) => ({
-          ...profile,
-          account_status:
-            profile.role === "creator"
-              ? "approved"
-              : profile.account_status ?? "approved",
-          state: stateByUserId.get(profile.id) ?? null,
-        }))
-      );
-
-      if (stateLoadError) {
-        setRemoteError(
-          stateLoadDegraded && states.length > 0
-            ? `${stateLoadError} Loaded compact account data so the creator page can stay usable.`
-            : `${stateLoadError} Showing the profile list without saved account state.`
-        );
-      }
-
-      try {
-        const notificationsQuery = await withTimeout(
-          supabase
-            .from("admin_notifications")
-            .select("id,profile_id,notification_type,title,details,read_at,created_at")
-            .order("created_at", { ascending: false })
-            .limit(10),
-          CREATOR_REMOTE_TIMEOUT_MS,
-          "Timed out while loading admin notifications."
-        );
-
-        setAdminNotifications(
-          (notificationsQuery.data ?? []) as AdminNotification[]
-        );
-      } catch {
-        setAdminNotifications([]);
-      }
     } catch (error) {
       setRemoteError(
         getErrorMessage(error, "The creator account list could not be loaded.")
@@ -889,136 +838,42 @@ export default function UsersPage() {
     if (!mediaDraft.fileUrl) return;
 
     setRemoteError(null);
+    setCreatorNotice(null);
 
     try {
-      const targetAccounts =
-        mediaDraft.scope !== "user"
-          ? remoteAccounts
-          : remoteAccounts.filter((account) => account.id === mediaDraft.accountId);
-
-      if (targetAccounts.length === 0) {
+      if (mediaDraft.scope === "user" && !mediaDraft.accountId) {
         throw new Error(
-          mediaDraft.scope === "user"
-            ? "Choose a user before saving user-specific media."
-            : "No loaded player accounts are available for this media update."
+          "Choose a user before saving user-specific media. Global media does not need a selected user."
         );
       }
 
-      const creatorId = activeUserId ?? "creator";
-      const createdMedia = createCreatorMediaItem({
-        uploadedBy: creatorId,
-        targetType: mediaDraft.targetType,
-        targetId: mediaDraft.targetId.trim() || "default",
-        scope: mediaDraft.scope,
-        userId: mediaDraft.scope === "user" ? targetAccounts[0].id : null,
-        fileUrl: mediaDraft.fileUrl,
-        fileType: mediaDraft.fileType,
-        altText: mediaDraft.altText,
-        title: mediaDraft.title,
+      const headers = await getCreatorAuthHeaders();
+      const response = await fetch("/api/creator/media", {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          targetType: mediaDraft.targetType,
+          targetId: mediaDraft.targetId.trim() || "default",
+          scope: mediaDraft.scope,
+          userId: mediaDraft.scope === "user" ? mediaDraft.accountId : null,
+          fileUrl: mediaDraft.fileUrl,
+          fileType: mediaDraft.fileType,
+          altText: mediaDraft.altText,
+          title: mediaDraft.title,
+        }),
       });
+      const body = (await response.json().catch(() => ({}))) as CreatorMediaResponse;
 
-      for (const account of targetAccounts) {
-        const appState = getAccountAppState(account);
-        const nextMedia =
-          mediaDraft.scope !== "user"
-            ? {
-                ...createdMedia,
-                id: `${createdMedia.id}-${account.id}`,
-                userId: null,
-              }
-            : {
-                ...createdMedia,
-                userId: account.id,
-              };
-
-        const saved = await saveAccountState(
-          account,
-          normalizeUserForToday({
-            ...appState,
-            mediaLibrary: [
-              nextMedia,
-              ...normalizeCreatorMediaLibrary(appState.mediaLibrary).filter(
-                (item) =>
-                  !(
-                    item.targetType === nextMedia.targetType &&
-                    item.targetId === nextMedia.targetId &&
-                    item.scope === nextMedia.scope &&
-                    item.userId === nextMedia.userId
-                  )
-              ),
-            ].slice(0, 300),
-            creatorAuditLog: [
-              createCreatorAuditEntry({
-                creatorId,
-                affectedUserId: account.id,
-                fieldChanged: `media.${nextMedia.targetType}.${nextMedia.targetId}`,
-                oldValue: "previous media",
-                newValue: nextMedia.title,
-              }),
-              ...(appState.creatorAuditLog ?? []),
-            ].slice(0, 500),
-          }),
-          {
-            title: `Creator Media Uploaded: ${nextMedia.title}`,
-            details: `Media applied to ${nextMedia.targetType}/${nextMedia.targetId} (${nextMedia.scope}).`,
-            type: "system_notice",
-          }
-        );
-
-        if (!saved) {
-          throw new Error("Media could not be saved to the selected account state.");
-        }
+      if (!response.ok) {
+        throw new Error(body.error ?? "Creator media could not be saved.");
       }
 
-      const supabase = getSupabaseBrowserClient();
-      if (supabase && authUser?.id) {
-        const mediaRows =
-          mediaDraft.scope === "global" || mediaDraft.scope === "fallback"
-            ? [
-                {
-                  uploaded_by: authUser.id,
-                  target_type: createdMedia.targetType,
-                  target_id: createdMedia.targetId,
-                  scope: createdMedia.scope,
-                  user_id: null,
-                  file_url: createdMedia.fileUrl,
-                  file_type: createdMedia.fileType,
-                  alt_text: createdMedia.altText,
-                  title: createdMedia.title,
-                },
-              ]
-            : targetAccounts.map((account) => ({
-                uploaded_by: authUser.id,
-                target_type: createdMedia.targetType,
-                target_id: createdMedia.targetId,
-                scope: "user",
-                user_id: account.id,
-                file_url: createdMedia.fileUrl,
-                file_type: createdMedia.fileType,
-                alt_text: createdMedia.altText,
-                title: createdMedia.title,
-              }));
-        const auditRows = targetAccounts.map((account) => ({
-          creator_id: authUser.id,
-          affected_user_id: account.id,
-          field_changed: `media.${createdMedia.targetType}.${createdMedia.targetId}`,
-          old_value: "previous media",
-          new_value: createdMedia.title,
-        }));
-
-        const mediaInsert = await supabase.from("creator_media").insert(mediaRows);
-        if (mediaInsert.error) {
-          throw new Error(mediaInsert.error.message);
-        }
-
-        const auditInsert = await supabase
-          .from("creator_audit_logs")
-          .insert(auditRows);
-        if (auditInsert.error) {
-          throw new Error(auditInsert.error.message);
-        }
-      }
-
+      setCreatorNotice(
+        `Saved ${mediaDraft.scope} media for ${mediaDraft.targetType}/${mediaDraft.targetId.trim() || "default"}.`
+      );
       setMediaDraft((current) => ({
         ...current,
         fileUrl: "",
@@ -1094,7 +949,7 @@ export default function UsersPage() {
           <PanelCard className="border-purple-500">
             <h2 className="text-xl text-purple-200">Creator Media Uploads</h2>
             <p className="text-sm text-zinc-400">
-              Upload optimized images, GIFs, short videos, or animation files as data URLs. Files are capped at {formatFileSize(CREATOR_MEDIA_MAX_BYTES)} so account state stays loadable.
+              Upload artifact and page media without waiting for the player account list. Global and fallback media apply through the dedicated media table.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1 text-sm text-zinc-300">
@@ -1105,6 +960,8 @@ export default function UsersPage() {
                     setMediaDraft((current) => ({
                       ...current,
                       scope: event.target.value as CreatorMediaScope,
+                      accountId:
+                        event.target.value === "user" ? current.accountId : null,
                     }))
                   }
                   className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
@@ -1125,9 +982,14 @@ export default function UsersPage() {
                       accountId: event.target.value || null,
                     }))
                   }
+                  disabled={mediaDraft.scope !== "user"}
                   className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 >
-                  <option value="">Choose user</option>
+                  <option value="">
+                    {mediaDraft.scope === "user"
+                      ? "Choose user"
+                      : "Not needed for global media"}
+                  </option>
                   {remoteAccounts.map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.display_name || account.email}
@@ -1159,20 +1021,42 @@ export default function UsersPage() {
                 </select>
               </label>
 
-              <label className="space-y-1 text-sm text-zinc-300">
-                Target ID
-                <input
-                  value={mediaDraft.targetId}
-                  onChange={(event) =>
-                    setMediaDraft((current) => ({
-                      ...current,
-                      targetId: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
-                  placeholder="artifact id, rank, exercise name, default..."
-                />
-              </label>
+              {isArtifactMediaTarget(mediaDraft.targetType) ? (
+                <label className="space-y-1 text-sm text-zinc-300">
+                  Artifact
+                  <select
+                    value={mediaDraft.targetId}
+                    onChange={(event) =>
+                      setMediaDraft((current) => ({
+                        ...current,
+                        targetId: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                  >
+                    {artifactOrder.map((artifactKey) => (
+                      <option key={artifactKey} value={artifactKey}>
+                        {getArtifactMeta(artifactKey).title} ({artifactKey})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="space-y-1 text-sm text-zinc-300">
+                  Target ID
+                  <input
+                    value={mediaDraft.targetId}
+                    onChange={(event) =>
+                      setMediaDraft((current) => ({
+                        ...current,
+                        targetId: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                    placeholder="rank, exercise name, default..."
+                  />
+                </label>
+              )}
 
               <label className="space-y-1 text-sm text-zinc-300">
                 Title
@@ -1252,6 +1136,12 @@ export default function UsersPage() {
 
         {creatorViewMode === "creator" && (
           <>
+        {creatorNotice && (
+          <PanelCard className="border-emerald-500">
+            <p className="text-emerald-200">{creatorNotice}</p>
+          </PanelCard>
+        )}
+
         {remoteError && (
           <PanelCard className="border-red-500">
             <p className="text-red-300">{remoteError}</p>
