@@ -61,6 +61,7 @@ export default function DashboardPage() {
     regenerateSpecialQuest,
     generateFunSpecialActivity,
     completeFunSpecialActivity,
+    deleteFunSpecialActivity,
     updateDailyHp,
     updateAiWeeklyPlan,
   } = useApp();
@@ -749,13 +750,22 @@ export default function DashboardPage() {
                       })}
                     </p>
                   </div>
-                  <ActionButton
-                    onClick={() => completeFunSpecialActivity(activity.id)}
-                    disabled={activity.completed || activity.awardedToday}
-                    variant={activity.completed ? "gray" : "green"}
-                  >
-                    {activity.completed ? "Completed" : "Complete"}
-                  </ActionButton>
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton
+                      onClick={() => completeFunSpecialActivity(activity.id)}
+                      disabled={activity.completed || activity.awardedToday}
+                      variant={activity.completed ? "gray" : "green"}
+                    >
+                      {activity.completed ? "Completed" : "Complete"}
+                    </ActionButton>
+                    <ActionButton
+                      onClick={() => deleteFunSpecialActivity(activity.id)}
+                      disabled={activity.completed || activity.awardedToday}
+                      variant="red"
+                    >
+                      Delete
+                    </ActionButton>
+                  </div>
                 </div>
               </div>
             ))}

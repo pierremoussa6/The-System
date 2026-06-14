@@ -98,9 +98,18 @@ import {
   safeRemoveStorageItem,
   safeSetStorageItem,
 } from "./lib/browser-storage";
+import { withTimeout } from "./lib/async-timeout";
+import { createCompactAppState } from "./state-persistence";
 
 const STORAGE_KEY = "the-system-multi-user-data";
 const SAVE_DELAY_MS = 600;
+const REMOTE_STATE_LOAD_TIMEOUT_MS = 12_000;
+const FULL_REMOTE_STATE_SELECT =
+  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magic_resistance,daily_hp,daily_hp_date,ai_analysis_json,ai_weekly_plan_json,workout_program_json,ai_quest_index,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at";
+const MINIMAL_REMOTE_STATE_SELECT =
+  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magic_resistance,daily_hp,daily_hp_date,updated_at";
+const LEGACY_REMOTE_STATE_SELECT =
+  "user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,daily_hp,daily_hp_date,updated_at";
 
 const AppContext = createContext<AppState | null>(null);
 
@@ -132,6 +141,89 @@ type RemoteUserStateSnapshot = {
   app_state_json?: UserRecord | null;
   updated_at?: string | null;
 };
+
+type SupabaseBrowserClient = NonNullable<
+  ReturnType<typeof getSupabaseBrowserClient>
+>;
+
+type RemoteLoadError = {
+  message: string;
+  code?: string;
+};
+
+type RemoteStateLoadResult = {
+  remoteState: RemoteUserStateSnapshot | null;
+  error: RemoteLoadError | null;
+  degraded: boolean;
+};
+
+function toRemoteLoadError(error: unknown, fallback: string): RemoteLoadError {
+  if (error && typeof error === "object" && "message" in error) {
+    const candidate = error as { message?: unknown; code?: unknown };
+
+    return {
+      message:
+        typeof candidate.message === "string"
+          ? candidate.message
+          : fallback,
+      code: typeof candidate.code === "string" ? candidate.code : undefined,
+    };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : fallback,
+  };
+}
+
+async function loadRemoteUserStateSnapshot(
+  supabase: SupabaseBrowserClient,
+  authUserId: string
+): Promise<RemoteStateLoadResult> {
+  const selections = [
+    FULL_REMOTE_STATE_SELECT,
+    MINIMAL_REMOTE_STATE_SELECT,
+    LEGACY_REMOTE_STATE_SELECT,
+  ];
+  let lastError: RemoteLoadError | null = null;
+
+  for (const select of selections) {
+    try {
+      const query = await withTimeout(
+        supabase
+          .from("user_state")
+          .select(select)
+          .eq("user_id", authUserId)
+          .maybeSingle(),
+        REMOTE_STATE_LOAD_TIMEOUT_MS,
+        "Timed out while loading remote user state."
+      );
+
+      if (!query.error) {
+        return {
+          remoteState: query.data as RemoteUserStateSnapshot | null,
+          error: lastError,
+          degraded: select !== FULL_REMOTE_STATE_SELECT,
+        };
+      }
+
+      lastError = toRemoteLoadError(
+        query.error,
+        "Failed to load remote user state."
+      );
+    } catch (error) {
+      lastError = toRemoteLoadError(
+        error,
+        "Failed to load remote user state."
+      );
+    }
+  }
+
+  return {
+    remoteState: null,
+    error: lastError,
+    degraded: true,
+  };
+}
 
 function createSingleUserData(user: UserRecord): MultiUserData {
   return {
@@ -402,7 +494,7 @@ function getUserStatePayload(user: UserRecord) {
     task_history_json: user.taskHistory ?? [],
     media_library_json: user.mediaLibrary ?? [],
     creator_audit_log_json: user.creatorAuditLog ?? [],
-    app_state_json: user,
+    app_state_json: createCompactAppState(user),
     updated_at: new Date().toISOString(),
   };
 }
@@ -422,7 +514,7 @@ function getCompatibleUserStatePayload(user: UserRecord) {
     ai_analysis_json: user.aiAnalysis,
     ai_weekly_plan_json: user.aiWeeklyPlan,
     ai_quest_index: user.aiQuestIndex,
-    app_state_json: user,
+    app_state_json: createCompactAppState(user),
     updated_at: new Date().toISOString(),
   };
 }
@@ -594,38 +686,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     async function loadRemoteState() {
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
+      if (!supabase) {
+        setRemoteLoadedUserId(authUserId);
+        return;
+      }
 
       remoteSaveReadyRef.current = false;
 
       const displayName =
         authProfile?.display_name ?? authUserEmail?.split("@")[0] ?? "Player";
 
-      const fullStateSelect =
-        "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magic_resistance,daily_hp,daily_hp_date,ai_analysis_json,ai_weekly_plan_json,workout_program_json,ai_quest_index,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at";
-      const remoteQuery = await supabase
-        .from("user_state")
-        .select(fullStateSelect)
-        .eq("user_id", authUserId)
-        .maybeSingle();
-      let remoteState = remoteQuery.data as RemoteUserStateSnapshot | null;
-      let error = remoteQuery.error;
-
-      if (error && error.code === "42703") {
-        const fallbackQuery = await supabase
-          .from("user_state")
-          .select("app_state_json")
-          .eq("user_id", authUserId)
-          .maybeSingle();
-
-        remoteState = fallbackQuery.data as RemoteUserStateSnapshot | null;
-        error = fallbackQuery.error;
-      }
+      const { remoteState, error, degraded } =
+        await loadRemoteUserStateSnapshot(supabase, authUserId);
 
       if (!isMounted) return;
 
       if (error) {
         console.error("Failed to load remote user state", error);
+      }
+
+      if (degraded) {
+        console.warn(
+          "Loaded a compact remote state snapshot. Some media or nested editor data may be unavailable until the next clean save."
+        );
       }
 
       const remoteRecord = getRemoteUserRecord(
@@ -1419,6 +1502,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           historyEntry,
           ...(rewardResult.user.taskHistory ?? current.taskHistory ?? []),
         ].slice(0, 300),
+      };
+    });
+  }
+
+  function deleteFunSpecialActivity(id: number) {
+    if (!activeUser) return;
+
+    updateActiveUser((current) => {
+      const activity = (current.funSpecialActivities ?? []).find(
+        (item) => item.id === id && !item.completed && !item.awardedToday
+      );
+
+      if (!activity) return current;
+
+      return {
+        ...current,
+        funSpecialActivities: (current.funSpecialActivities ?? []).filter(
+          (item) => item.id !== id
+        ),
+        log: appendLog(current.log, {
+          type: "system_rotation",
+          title: `Fun Activity Deleted: ${activity.title}`,
+          details:
+            "Optional fun special activity removed. The scheduled special quest cadence from onboarding is unchanged.",
+        }),
       };
     });
   }
@@ -2458,6 +2566,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteHouseholdTask,
         generateFunSpecialActivity,
         completeFunSpecialActivity,
+        deleteFunSpecialActivity,
         addFoodJournalEntry,
         deleteFoodJournalEntry,
         saveDietFeedback,

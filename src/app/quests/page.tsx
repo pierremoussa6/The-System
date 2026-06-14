@@ -47,6 +47,7 @@ export default function QuestsPage() {
     funSpecialActivities,
     generateFunSpecialActivity,
     completeFunSpecialActivity,
+    deleteFunSpecialActivity,
     activeEffects,
     activeUser,
     mediaLibrary,
@@ -485,13 +486,22 @@ export default function QuestsPage() {
                       </p>
                     )}
                   </div>
-                  <ActionButton
-                    onClick={() => completeFunSpecialActivity(activity.id)}
-                    disabled={activity.completed || activity.awardedToday}
-                    variant={activity.completed ? "gray" : "green"}
-                  >
-                    {activity.completed ? "Completed" : "Complete"}
-                  </ActionButton>
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton
+                      onClick={() => completeFunSpecialActivity(activity.id)}
+                      disabled={activity.completed || activity.awardedToday}
+                      variant={activity.completed ? "gray" : "green"}
+                    >
+                      {activity.completed ? "Completed" : "Complete"}
+                    </ActionButton>
+                    <ActionButton
+                      onClick={() => deleteFunSpecialActivity(activity.id)}
+                      disabled={activity.completed || activity.awardedToday}
+                      variant="red"
+                    >
+                      Delete
+                    </ActionButton>
+                  </div>
                 </div>
               </div>
             ))}

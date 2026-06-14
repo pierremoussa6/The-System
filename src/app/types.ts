@@ -699,6 +699,7 @@ export type AppState = {
   deleteHouseholdTask: (id: string) => void;
   generateFunSpecialActivity: () => void;
   completeFunSpecialActivity: (id: number) => void;
+  deleteFunSpecialActivity: (id: number) => void;
   addFoodJournalEntry: (entry: Omit<FoodJournalEntry, "id">) => void;
   deleteFoodJournalEntry: (id: string) => void;
   saveDietFeedback: (feedback: DietFeedback) => void;

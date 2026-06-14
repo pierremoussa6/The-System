@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../store";
 import { useAuth } from "../auth-context";
 import { getSupabaseBrowserClient } from "../lib/supabase/client";
+import { withTimeout } from "../lib/async-timeout";
 import PanelCard from "../components/PanelCard";
 import ActionButton from "../components/ActionButton";
 import { getSystemRank } from "../rank-system";
@@ -40,6 +41,7 @@ import {
   normalizeSpecialQuestMemory,
   normalizeUserForToday,
 } from "../quest-engine";
+import { createCompactAppState } from "../state-persistence";
 
 type RemoteProfile = {
   id: string;
@@ -145,10 +147,27 @@ const mediaTargetOptions: Array<{
 ];
 
 const primaryCreatorEmail = "pierremoussa6@gmail.com";
+const CREATOR_REMOTE_TIMEOUT_MS = 12_000;
+const CREATOR_MEDIA_MAX_BYTES = 900_000;
+const FULL_CREATOR_STATE_SELECT =
+  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at";
+const MINIMAL_CREATOR_STATE_SELECT =
+  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,updated_at";
+const LEGACY_CREATOR_STATE_SELECT =
+  "user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,daily_hp,daily_hp_date,updated_at";
 
 function toSafeNumber(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.round(value));
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1_000))} KB`;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function getEditableState(account: RemoteAccount): RemoteUserState {
@@ -373,75 +392,110 @@ export default function UsersPage() {
     setRemoteLoading(true);
     setRemoteError(null);
 
-    const { data: profiles, error: profilesError } = await supabase
-      .from("profiles")
-      .select("id,email,display_name,role,account_status,timezone,reminders_enabled,created_at")
-      .order("created_at", { ascending: false });
+    try {
+      const profilesQuery = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("id,email,display_name,role,account_status,timezone,reminders_enabled,created_at")
+          .order("created_at", { ascending: false }),
+        CREATOR_REMOTE_TIMEOUT_MS,
+        "Timed out while loading account profiles."
+      );
 
-    if (profilesError) {
-      setRemoteError(profilesError.message);
-      setRemoteLoading(false);
-      return;
-    }
-
-    const profileRows = (profiles ?? []) as RemoteProfile[];
-    const profileIds = profileRows.map((profile) => profile.id);
-
-    let states: unknown[] = [];
-    let statesError: { message: string; code?: string } | null = null;
-
-    if (profileIds.length) {
-      const stateQuery = await supabase
-        .from("user_state")
-        .select("user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,active_effects_json,artifact_history_json,task_history_json,media_library_json,creator_audit_log_json,app_state_json,updated_at")
-        .in("user_id", profileIds);
-
-      states = stateQuery.data ?? [];
-      statesError = stateQuery.error;
-
-      if (statesError?.code === "42703") {
-        const fallbackQuery = await supabase
-          .from("user_state")
-          .select("user_id,total_xp,streak,last_completion_date,strength,vitality,discipline,focus,daily_hp,daily_hp_date,app_state_json,updated_at")
-          .in("user_id", profileIds);
-
-        states = fallbackQuery.data ?? [];
-        statesError = fallbackQuery.error;
+      if (profilesQuery.error) {
+        throw new Error(profilesQuery.error.message);
       }
-    }
 
-    if (statesError) {
-      setRemoteError(statesError.message);
+      const profileRows = (profilesQuery.data ?? []) as RemoteProfile[];
+      const profileIds = profileRows.map((profile) => profile.id);
+      let states: unknown[] = [];
+      let stateLoadError: string | null = null;
+      let stateLoadDegraded = false;
+
+      if (profileIds.length) {
+        const stateSelections = [
+          FULL_CREATOR_STATE_SELECT,
+          MINIMAL_CREATOR_STATE_SELECT,
+          LEGACY_CREATOR_STATE_SELECT,
+        ];
+
+        for (const select of stateSelections) {
+          try {
+            const stateQuery = await withTimeout(
+              supabase
+                .from("user_state")
+                .select(select)
+                .in("user_id", profileIds),
+              CREATOR_REMOTE_TIMEOUT_MS,
+              "Timed out while loading saved account state."
+            );
+
+            if (!stateQuery.error) {
+              states = stateQuery.data ?? [];
+              stateLoadDegraded = select !== FULL_CREATOR_STATE_SELECT;
+              break;
+            }
+
+            stateLoadError = stateQuery.error.message;
+          } catch (error) {
+            stateLoadError = getErrorMessage(
+              error,
+              "Failed to load saved account state."
+            );
+          }
+        }
+      }
+
+      const stateByUserId = new Map(
+        ((states ?? []) as RemoteUserState[]).map((state) => [
+          state.user_id,
+          state,
+        ])
+      );
+
+      setRemoteAccounts(
+        profileRows.map((profile) => ({
+          ...profile,
+          account_status:
+            profile.role === "creator"
+              ? "approved"
+              : profile.account_status ?? "approved",
+          state: stateByUserId.get(profile.id) ?? null,
+        }))
+      );
+
+      if (stateLoadError) {
+        setRemoteError(
+          stateLoadDegraded && states.length > 0
+            ? `${stateLoadError} Loaded compact account data so the creator page can stay usable.`
+            : `${stateLoadError} Showing the profile list without saved account state.`
+        );
+      }
+
+      try {
+        const notificationsQuery = await withTimeout(
+          supabase
+            .from("admin_notifications")
+            .select("id,profile_id,notification_type,title,details,read_at,created_at")
+            .order("created_at", { ascending: false })
+            .limit(10),
+          CREATOR_REMOTE_TIMEOUT_MS,
+          "Timed out while loading admin notifications."
+        );
+
+        setAdminNotifications(
+          (notificationsQuery.data ?? []) as AdminNotification[]
+        );
+      } catch {
+        setAdminNotifications([]);
+      }
+    } catch (error) {
+      setRemoteError(
+        getErrorMessage(error, "The creator account list could not be loaded.")
+      );
+    } finally {
       setRemoteLoading(false);
-      return;
     }
-
-    const stateByUserId = new Map(
-      ((states ?? []) as RemoteUserState[]).map((state) => [
-        state.user_id,
-        state,
-      ])
-    );
-
-    setRemoteAccounts(
-      profileRows.map((profile) => ({
-        ...profile,
-        account_status:
-          profile.role === "creator"
-            ? "approved"
-            : profile.account_status ?? "approved",
-        state: stateByUserId.get(profile.id) ?? null,
-      }))
-    );
-
-    const { data: notifications } = await supabase
-      .from("admin_notifications")
-      .select("id,profile_id,notification_type,title,details,read_at,created_at")
-      .order("created_at", { ascending: false })
-      .limit(10);
-
-    setAdminNotifications((notifications ?? []) as AdminNotification[]);
-    setRemoteLoading(false);
   }, [isCreator, status]);
 
   useEffect(() => {
@@ -526,7 +580,7 @@ export default function UsersPage() {
       task_history_json: nextAppState.taskHistory ?? [],
       media_library_json: nextAppState.mediaLibrary ?? [],
       creator_audit_log_json: nextAppState.creatorAuditLog ?? [],
-      app_state_json: nextAppState,
+      app_state_json: createCompactAppState(nextAppState),
       updated_at: updatedAt,
     };
     const compatiblePayload = {
@@ -540,7 +594,7 @@ export default function UsersPage() {
       focus: nextAppState.stats.intelligence,
       daily_hp: nextAppState.dailyHp,
       daily_hp_date: nextAppState.dailyHpDate,
-      app_state_json: nextAppState,
+      app_state_json: createCompactAppState(nextAppState),
       updated_at: updatedAt,
     };
 
@@ -798,6 +852,22 @@ export default function UsersPage() {
   function handleMediaFile(file: File | null) {
     if (!file) return;
 
+    setRemoteError(null);
+
+    if (file.size > CREATOR_MEDIA_MAX_BYTES) {
+      setMediaDraft((current) => ({
+        ...current,
+        fileUrl: "",
+        fileType: "",
+      }));
+      setRemoteError(
+        `That file is ${formatFileSize(file.size)}. Data-URL media is capped at ${formatFileSize(
+          CREATOR_MEDIA_MAX_BYTES
+        )} so the app state stays loadable. Use a smaller optimized image for now.`
+      );
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       const result = typeof reader.result === "string" ? reader.result : "";
@@ -809,135 +879,158 @@ export default function UsersPage() {
         altText: current.altText || file.name,
       }));
     };
+    reader.onerror = () => {
+      setRemoteError("The selected media file could not be read.");
+    };
     reader.readAsDataURL(file);
   }
 
   async function saveCreatorMedia() {
     if (!mediaDraft.fileUrl) return;
 
-    const targetAccounts =
-      mediaDraft.scope !== "user"
-        ? remoteAccounts
-        : remoteAccounts.filter((account) => account.id === mediaDraft.accountId);
+    setRemoteError(null);
 
-    if (targetAccounts.length === 0) {
-      setRemoteError(
-        mediaDraft.scope === "user"
-          ? "Choose a user before saving user-specific media."
-          : "No loaded player accounts are available for this media update."
-      );
-      return;
-    }
-
-    const creatorId = activeUserId ?? "creator";
-    const createdMedia = createCreatorMediaItem({
-      uploadedBy: creatorId,
-      targetType: mediaDraft.targetType,
-      targetId: mediaDraft.targetId.trim() || "default",
-      scope: mediaDraft.scope,
-      userId: mediaDraft.scope === "user" ? targetAccounts[0].id : null,
-      fileUrl: mediaDraft.fileUrl,
-      fileType: mediaDraft.fileType,
-      altText: mediaDraft.altText,
-      title: mediaDraft.title,
-    });
-
-    for (const account of targetAccounts) {
-      const appState = getAccountAppState(account);
-      const nextMedia =
+    try {
+      const targetAccounts =
         mediaDraft.scope !== "user"
-          ? {
-              ...createdMedia,
-              id: `${createdMedia.id}-${account.id}`,
-              userId: null,
-            }
-          : {
-              ...createdMedia,
-              userId: account.id,
-            };
+          ? remoteAccounts
+          : remoteAccounts.filter((account) => account.id === mediaDraft.accountId);
 
-      await saveAccountState(
-        account,
-        normalizeUserForToday({
-          ...appState,
-          mediaLibrary: [
-            nextMedia,
-            ...normalizeCreatorMediaLibrary(appState.mediaLibrary).filter(
-              (item) =>
-                !(
-                  item.targetType === nextMedia.targetType &&
-                  item.targetId === nextMedia.targetId &&
-                  item.scope === nextMedia.scope &&
-                  item.userId === nextMedia.userId
-                )
-            ),
-          ].slice(0, 300),
-          creatorAuditLog: [
-            createCreatorAuditEntry({
-              creatorId,
-              affectedUserId: account.id,
-              fieldChanged: `media.${nextMedia.targetType}.${nextMedia.targetId}`,
-              oldValue: "previous media",
-              newValue: nextMedia.title,
-            }),
-            ...(appState.creatorAuditLog ?? []),
-          ].slice(0, 500),
-        }),
-        {
-          title: `Creator Media Uploaded: ${nextMedia.title}`,
-          details: `Media applied to ${nextMedia.targetType}/${nextMedia.targetId} (${nextMedia.scope}).`,
-          type: "system_notice",
+      if (targetAccounts.length === 0) {
+        throw new Error(
+          mediaDraft.scope === "user"
+            ? "Choose a user before saving user-specific media."
+            : "No loaded player accounts are available for this media update."
+        );
+      }
+
+      const creatorId = activeUserId ?? "creator";
+      const createdMedia = createCreatorMediaItem({
+        uploadedBy: creatorId,
+        targetType: mediaDraft.targetType,
+        targetId: mediaDraft.targetId.trim() || "default",
+        scope: mediaDraft.scope,
+        userId: mediaDraft.scope === "user" ? targetAccounts[0].id : null,
+        fileUrl: mediaDraft.fileUrl,
+        fileType: mediaDraft.fileType,
+        altText: mediaDraft.altText,
+        title: mediaDraft.title,
+      });
+
+      for (const account of targetAccounts) {
+        const appState = getAccountAppState(account);
+        const nextMedia =
+          mediaDraft.scope !== "user"
+            ? {
+                ...createdMedia,
+                id: `${createdMedia.id}-${account.id}`,
+                userId: null,
+              }
+            : {
+                ...createdMedia,
+                userId: account.id,
+              };
+
+        const saved = await saveAccountState(
+          account,
+          normalizeUserForToday({
+            ...appState,
+            mediaLibrary: [
+              nextMedia,
+              ...normalizeCreatorMediaLibrary(appState.mediaLibrary).filter(
+                (item) =>
+                  !(
+                    item.targetType === nextMedia.targetType &&
+                    item.targetId === nextMedia.targetId &&
+                    item.scope === nextMedia.scope &&
+                    item.userId === nextMedia.userId
+                  )
+              ),
+            ].slice(0, 300),
+            creatorAuditLog: [
+              createCreatorAuditEntry({
+                creatorId,
+                affectedUserId: account.id,
+                fieldChanged: `media.${nextMedia.targetType}.${nextMedia.targetId}`,
+                oldValue: "previous media",
+                newValue: nextMedia.title,
+              }),
+              ...(appState.creatorAuditLog ?? []),
+            ].slice(0, 500),
+          }),
+          {
+            title: `Creator Media Uploaded: ${nextMedia.title}`,
+            details: `Media applied to ${nextMedia.targetType}/${nextMedia.targetId} (${nextMedia.scope}).`,
+            type: "system_notice",
+          }
+        );
+
+        if (!saved) {
+          throw new Error("Media could not be saved to the selected account state.");
         }
-      );
-    }
+      }
 
-    const supabase = getSupabaseBrowserClient();
-    if (supabase && authUser?.id) {
-      const mediaRows =
-        mediaDraft.scope === "global" || mediaDraft.scope === "fallback"
-          ? [
-              {
+      const supabase = getSupabaseBrowserClient();
+      if (supabase && authUser?.id) {
+        const mediaRows =
+          mediaDraft.scope === "global" || mediaDraft.scope === "fallback"
+            ? [
+                {
+                  uploaded_by: authUser.id,
+                  target_type: createdMedia.targetType,
+                  target_id: createdMedia.targetId,
+                  scope: createdMedia.scope,
+                  user_id: null,
+                  file_url: createdMedia.fileUrl,
+                  file_type: createdMedia.fileType,
+                  alt_text: createdMedia.altText,
+                  title: createdMedia.title,
+                },
+              ]
+            : targetAccounts.map((account) => ({
                 uploaded_by: authUser.id,
                 target_type: createdMedia.targetType,
                 target_id: createdMedia.targetId,
-                scope: createdMedia.scope,
-                user_id: null,
+                scope: "user",
+                user_id: account.id,
                 file_url: createdMedia.fileUrl,
                 file_type: createdMedia.fileType,
                 alt_text: createdMedia.altText,
                 title: createdMedia.title,
-              },
-            ]
-          : targetAccounts.map((account) => ({
-              uploaded_by: authUser.id,
-              target_type: createdMedia.targetType,
-              target_id: createdMedia.targetId,
-              scope: "user",
-              user_id: account.id,
-              file_url: createdMedia.fileUrl,
-              file_type: createdMedia.fileType,
-              alt_text: createdMedia.altText,
-              title: createdMedia.title,
-            }));
-      const auditRows = targetAccounts.map((account) => ({
-        creator_id: authUser.id,
-        affected_user_id: account.id,
-        field_changed: `media.${createdMedia.targetType}.${createdMedia.targetId}`,
-        old_value: "previous media",
-        new_value: createdMedia.title,
+              }));
+        const auditRows = targetAccounts.map((account) => ({
+          creator_id: authUser.id,
+          affected_user_id: account.id,
+          field_changed: `media.${createdMedia.targetType}.${createdMedia.targetId}`,
+          old_value: "previous media",
+          new_value: createdMedia.title,
+        }));
+
+        const mediaInsert = await supabase.from("creator_media").insert(mediaRows);
+        if (mediaInsert.error) {
+          throw new Error(mediaInsert.error.message);
+        }
+
+        const auditInsert = await supabase
+          .from("creator_audit_logs")
+          .insert(auditRows);
+        if (auditInsert.error) {
+          throw new Error(auditInsert.error.message);
+        }
+      }
+
+      setMediaDraft((current) => ({
+        ...current,
+        fileUrl: "",
+        fileType: "",
+        title: "",
+        altText: "",
       }));
-
-      await supabase.from("creator_media").insert(mediaRows);
-      await supabase.from("creator_audit_logs").insert(auditRows);
+    } catch (error) {
+      setRemoteError(
+        getErrorMessage(error, "Creator media could not be saved.")
+      );
     }
-
-    setMediaDraft((current) => ({
-      ...current,
-      fileUrl: "",
-      fileType: "",
-      title: "",
-      altText: "",
-    }));
   }
 
   if (status !== "unconfigured") {
@@ -1001,7 +1094,7 @@ export default function UsersPage() {
           <PanelCard className="border-purple-500">
             <h2 className="text-xl text-purple-200">Creator Media Uploads</h2>
             <p className="text-sm text-zinc-400">
-              Upload images, GIFs, short videos, or animation files as data URLs. User-specific media is saved to the selected player state. Global media is copied to all loaded player states.
+              Upload optimized images, GIFs, short videos, or animation files as data URLs. Files are capped at {formatFileSize(CREATOR_MEDIA_MAX_BYTES)} so account state stays loadable.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1 text-sm text-zinc-300">
