@@ -12,18 +12,21 @@ import { isProfileComplete } from "../profile";
 
 function ProfileCompletionGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, profile } = useApp();
+  const { isCreator } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const isProfileRoute = pathname === "/profile-setup";
   const isInfoRoute = pathname === "/onboarding";
+  const isCreatorRoute = pathname === "/users" || pathname.startsWith("/users/");
+  const profileSetupBypassed = isProfileRoute || isInfoRoute || (isCreator && isCreatorRoute);
   const complete = isProfileComplete(profile);
 
   useEffect(() => {
-    if (!isLoaded || complete || isProfileRoute || isInfoRoute) return;
+    if (!isLoaded || complete || profileSetupBypassed) return;
     router.replace("/profile-setup");
-  }, [complete, isInfoRoute, isLoaded, isProfileRoute, router]);
+  }, [complete, isLoaded, profileSetupBypassed, router]);
 
-  if (isLoaded && !complete && !isProfileRoute && !isInfoRoute) {
+  if (isLoaded && !complete && !profileSetupBypassed) {
     return (
       <div className="mx-auto max-w-xl">
         <PanelCard className="border-cyan-500">

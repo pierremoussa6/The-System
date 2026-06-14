@@ -46,6 +46,7 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_STARTUP_TIMEOUT_MS = 8000;
+const PRIMARY_CREATOR_EMAIL = "pierremoussa6@gmail.com";
 
 function getAuthErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -73,20 +74,24 @@ function getFallbackDisplayName(user: User) {
 }
 
 function getDefaultAccountStatus(user: User): AccountStatus {
-  return user.email?.toLowerCase() === "pierremoussa6@gmail.com"
+  return user.email?.toLowerCase() === PRIMARY_CREATOR_EMAIL
     ? "approved"
     : "pending_approval";
 }
 
 function normalizeProfile(user: User, profile: Partial<AuthProfile> | null): AuthProfile {
+  const email = profile?.email ?? user.email ?? "";
+  const isPrimaryCreator = email.toLowerCase() === PRIMARY_CREATOR_EMAIL;
   const role =
-    profile?.role === "creator" || profile?.role === "admin"
+    isPrimaryCreator
+      ? "creator"
+      : profile?.role === "creator" || profile?.role === "admin"
       ? profile.role
       : "player";
 
   return {
     id: user.id,
-    email: profile?.email ?? user.email ?? "",
+    email,
     display_name: profile?.display_name ?? getFallbackDisplayName(user),
     role,
     account_status:
