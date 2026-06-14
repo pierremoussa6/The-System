@@ -453,12 +453,6 @@ export default function UsersPage() {
         setRemoteError(
           "Creator tools unavailable — sign in or configure Supabase."
         );
-        return;
-      }
-      if (!headers) {
-        setRemoteError(
-          "Creator tools unavailable — sign in or configure Supabase."
-        );
         setRemoteLoading(false);
         return;
       }
@@ -1065,6 +1059,13 @@ export default function UsersPage() {
       }
 
       const headers = await getCreatorAuthHeaders();
+      if (!headers) {
+        setRemoteError(
+          "Creator tools unavailable — sign in or configure Supabase."
+        );
+        return;
+      }
+
       const targetId = mediaDraft.targetId.trim() || "default";
       let response: Response;
 
