@@ -71,6 +71,11 @@ export function hasSupabaseConfig() {
 
 export function getSupabaseBrowserClient() {
   if (!hasSupabaseConfig()) {
+    // Log a warning to help debugging in environments where env vars were
+    // accidentally removed (e.g., recent Vercel deployment).
+    // Keep returning null so callers can degrade gracefully.
+    // eslint-disable-next-line no-console
+    console.warn("Supabase is not configured: missing NEXT_PUBLIC_SUPABASE_URL or anon key");
     return null;
   }
 

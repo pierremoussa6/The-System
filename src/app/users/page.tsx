@@ -206,14 +206,14 @@ async function getCreatorAuthHeaders() {
   const supabase = getSupabaseBrowserClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured.");
+    return null;
   }
 
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
 
   if (!token) {
-    throw new Error("Sign in again before using creator tools.");
+    return null;
   }
 
   return {
@@ -449,6 +449,19 @@ export default function UsersPage() {
 
     try {
       const headers = await getCreatorAuthHeaders();
+      if (!headers) {
+        setRemoteError(
+          "Creator tools unavailable — sign in or configure Supabase."
+        );
+        return;
+      }
+      if (!headers) {
+        setRemoteError(
+          "Creator tools unavailable — sign in or configure Supabase."
+        );
+        setRemoteLoading(false);
+        return;
+      }
       const response = await withTimeout(
         fetch("/api/creator/accounts", {
           headers,
@@ -506,6 +519,13 @@ export default function UsersPage() {
 
     try {
       const headers = await getCreatorAuthHeaders();
+      if (!headers) {
+        setRemoteError(
+          "Creator tools unavailable — sign in or configure Supabase."
+        );
+        setLoadingAccountStateId(null);
+        return;
+      }
       const response = await withTimeout(
         fetch(`/api/creator/account-state/${encodeURIComponent(account.id)}`, {
           headers,
@@ -702,16 +722,26 @@ export default function UsersPage() {
     }
 
     if (logEntry) {
-      const { error: logError } = await supabase.from("system_logs").insert({
-        user_id: account.id,
-        log_type: logEntry.type ?? "system_notice",
-        title: logEntry.title,
-        details: logEntry.details,
-      });
+      const disableLogs =
+        process.env.NEXT_PUBLIC_DISABLE_SYSTEM_LOGS === "1" ||
+        process.env.NEXT_PUBLIC_DISABLE_SYSTEM_LOGS === "true";
 
-      if (logError) {
-        setRemoteError(logError.message);
-        return false;
+      if (disableLogs) {
+        // Avoid writes to system_logs when disabled (helps reduce Disk IO).
+        // eslint-disable-next-line no-console
+        console.warn("System logs insertion skipped (DISABLE_SYSTEM_LOGS=true)");
+      } else {
+        const { error: logError } = await supabase.from("system_logs").insert({
+          user_id: account.id,
+          log_type: logEntry.type ?? "system_notice",
+          title: logEntry.title,
+          details: logEntry.details,
+        });
+
+        if (logError) {
+          setRemoteError(logError.message);
+          return false;
+        }
       }
     }
 
