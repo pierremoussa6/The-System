@@ -34,9 +34,7 @@ type RemoteUserState = {
   daily_hp: number | null;
   daily_hp_date: string | null;
   active_effects_json?: UserRecord["activeEffects"] | null;
-  artifact_history_json?: UserRecord["artifactHistory"] | null;
-  task_history_json?: UserRecord["taskHistory"] | null;
-  app_state_json: UserRecord | null;
+  app_state_json?: null;
   updated_at: string;
 };
 
@@ -51,7 +49,7 @@ type AdminNotification = {
 };
 
 const CREATOR_STATE_SELECT =
-  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,active_effects_json,artifact_history_json,task_history_json,app_state_json,updated_at";
+  "user_id,total_xp,lifetime_xp,spendable_xp,streak,last_completion_date,strength,vitality,discipline,focus,intelligence,agility,magicResistance:magic_resistance,daily_hp,daily_hp_date,active_effects_json,updated_at";
 
 export async function GET(request: Request) {
   const auth = await requireCreator(request);
@@ -96,7 +94,7 @@ export async function GET(request: Request) {
   }
 
   const stateByUserId = new Map(
-    states.map((state) => [state.user_id, state])
+    states.map((state) => [state.user_id, { ...state, app_state_json: null }])
   );
 
   const { data: notifications } = await supabase

@@ -261,6 +261,21 @@ create table if not exists public.creator_audit_logs (
   created_at timestamptz not null default now()
 );
 
+create index if not exists profiles_created_at_idx
+on public.profiles (created_at desc);
+
+create index if not exists admin_notifications_created_at_idx
+on public.admin_notifications (created_at desc);
+
+create index if not exists creator_media_visible_idx
+on public.creator_media (scope, user_id, target_type, target_id, created_at desc);
+
+create index if not exists system_logs_user_created_at_idx
+on public.system_logs (user_id, created_at desc);
+
+create index if not exists reminder_logs_user_date_idx
+on public.reminder_logs (user_id, reminder_date desc);
+
 create or replace function public.is_creator(check_user_id uuid default auth.uid())
 returns boolean
 language sql

@@ -74,7 +74,7 @@ type RemoteUserState = {
   task_history_json?: UserRecord["taskHistory"] | null;
   media_library_json?: UserRecord["mediaLibrary"] | null;
   creator_audit_log_json?: UserRecord["creatorAuditLog"] | null;
-  app_state_json: UserRecord | null;
+  app_state_json?: UserRecord | null;
   updated_at: string;
 };
 
@@ -147,7 +147,7 @@ const mediaTargetOptions: Array<{
 
 const primaryCreatorEmail = "pierremoussa6@gmail.com";
 const CREATOR_REMOTE_TIMEOUT_MS = 12_000;
-const CREATOR_MEDIA_MAX_BYTES = 900_000;
+const CREATOR_MEDIA_MAX_BYTES = 4_000_000;
 
 type CreatorAccountsResponse = {
   accounts?: RemoteAccount[];
@@ -160,6 +160,11 @@ type CreatorMediaResponse = {
   error?: string;
 };
 
+type CreatorAccountStateResponse = {
+  state?: RemoteUserState | null;
+  error?: string;
+};
+
 function toSafeNumber(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.round(value));
@@ -168,6 +173,25 @@ function toSafeNumber(value: number) {
 function formatFileSize(bytes: number) {
   if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1_000))} KB`;
+}
+
+function inferMediaTypeFromUrl(url: string) {
+  const pathname = (() => {
+    try {
+      return new URL(url).pathname.toLowerCase();
+    } catch {
+      return url.toLowerCase();
+    }
+  })();
+
+  if (/\.(mp4|webm|mov)$/.test(pathname)) return "video/mp4";
+  if (pathname.endsWith(".json")) return "application/json";
+  if (pathname.endsWith(".gif")) return "image/gif";
+  if (pathname.endsWith(".webp")) return "image/webp";
+  if (pathname.endsWith(".png")) return "image/png";
+  if (/\.(jpg|jpeg)$/.test(pathname)) return "image/jpeg";
+
+  return "image/*";
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -390,6 +414,8 @@ export default function UsersPage() {
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [creatorNotice, setCreatorNotice] = useState<string | null>(null);
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({});
+  const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null);
+  const [loadingAccountStateId, setLoadingAccountStateId] = useState<string | null>(null);
   const [creatorViewMode, setCreatorViewMode] = useState<"player" | "creator">("creator");
   const [mediaDraft, setMediaDraft] = useState<{
     accountId: string | null;
@@ -400,6 +426,8 @@ export default function UsersPage() {
     altText: string;
     fileUrl: string;
     fileType: string;
+    file: File | null;
+    previewUrl: string;
   }>({
     accountId: null,
     targetType: "artifact_card",
@@ -409,6 +437,8 @@ export default function UsersPage() {
     altText: "",
     fileUrl: "",
     fileType: "",
+    file: null,
+    previewUrl: "",
   });
 
   const loadRemoteAccounts = useCallback(async () => {
@@ -434,7 +464,29 @@ export default function UsersPage() {
         throw new Error(body.error ?? "The creator account list could not be loaded.");
       }
 
-      setRemoteAccounts(Array.isArray(body.accounts) ? body.accounts : []);
+      const nextAccounts = Array.isArray(body.accounts) ? body.accounts : [];
+
+      setRemoteAccounts((current) => {
+        const detailedStateByUserId = new Map(
+          current
+            .filter((account) => account.state?.app_state_json)
+            .map((account) => [account.id, account.state])
+        );
+
+        return nextAccounts.map((account) => {
+          const detailedState = detailedStateByUserId.get(account.id);
+
+          return detailedState
+            ? {
+                ...account,
+                state: {
+                  ...(account.state ?? {}),
+                  ...detailedState,
+                },
+              }
+            : account;
+        });
+      });
       setAdminNotifications(
         Array.isArray(body.notifications) ? body.notifications : []
       );
@@ -446,6 +498,79 @@ export default function UsersPage() {
       setRemoteLoading(false);
     }
   }, [isCreator, status]);
+
+  async function loadAccountEditor(account: RemoteAccount) {
+    setLoadingAccountStateId(account.id);
+    setRemoteError(null);
+    setCreatorNotice(null);
+
+    try {
+      const headers = await getCreatorAuthHeaders();
+      const response = await withTimeout(
+        fetch(`/api/creator/account-state/${encodeURIComponent(account.id)}`, {
+          headers,
+          cache: "no-store",
+        }),
+        CREATOR_REMOTE_TIMEOUT_MS,
+        "Timed out while loading this player editor."
+      );
+      const body = (await response.json().catch(() => ({}))) as CreatorAccountStateResponse;
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "The player editor could not be loaded.");
+      }
+
+      const loadedState = body.state ?? getEditableState(account);
+      const nextState = loadedState.app_state_json
+        ? loadedState
+        : {
+            ...loadedState,
+            app_state_json: createRemoteAppState(account, loadedState),
+          };
+
+      setRemoteAccounts((current) =>
+        current.map((item) =>
+          item.id === account.id
+            ? {
+                ...item,
+                state: nextState,
+              }
+            : item
+        )
+      );
+      setExpandedAccountId(account.id);
+    } catch (error) {
+      setRemoteError(
+        getErrorMessage(error, "The player editor could not be loaded.")
+      );
+    } finally {
+      setLoadingAccountStateId(null);
+    }
+  }
+
+  async function toggleAccountEditor(account: RemoteAccount) {
+    if (expandedAccountId === account.id) {
+      setExpandedAccountId(null);
+      return;
+    }
+
+    if (account.state?.app_state_json) {
+      setExpandedAccountId(account.id);
+      return;
+    }
+
+    await loadAccountEditor(account);
+  }
+
+  useEffect(() => {
+    const previewUrl = mediaDraft.previewUrl;
+
+    return () => {
+      if (previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [mediaDraft.previewUrl]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -480,7 +605,20 @@ export default function UsersPage() {
       return;
     }
 
-    await loadRemoteAccounts();
+    setRemoteAccounts((current) =>
+      current.map((account) =>
+        account.id === id
+          ? {
+              ...account,
+              ...updates,
+              account_status:
+                updates.role === "creator"
+                  ? "approved"
+                  : updates.account_status ?? account.account_status,
+            }
+          : account
+      )
+    );
   }
 
   async function saveAccountState(
@@ -508,6 +646,7 @@ export default function UsersPage() {
 
     setRemoteError(null);
     const updatedAt = new Date().toISOString();
+    const compactAppState = createCompactAppState(nextAppState);
     const modernPayload = {
       user_id: account.id,
       total_xp: nextAppState.totalXp,
@@ -524,12 +663,12 @@ export default function UsersPage() {
       magic_resistance: nextAppState.stats.magicResistance,
       daily_hp: nextAppState.dailyHp,
       daily_hp_date: nextAppState.dailyHpDate,
-      active_effects_json: nextAppState.activeEffects,
-      artifact_history_json: nextAppState.artifactHistory ?? [],
-      task_history_json: nextAppState.taskHistory ?? [],
-      media_library_json: nextAppState.mediaLibrary ?? [],
-      creator_audit_log_json: nextAppState.creatorAuditLog ?? [],
-      app_state_json: createCompactAppState(nextAppState),
+      active_effects_json: compactAppState.activeEffects,
+      artifact_history_json: compactAppState.artifactHistory ?? [],
+      task_history_json: compactAppState.taskHistory ?? [],
+      media_library_json: [],
+      creator_audit_log_json: [],
+      app_state_json: compactAppState,
       updated_at: updatedAt,
     };
     const compatiblePayload = {
@@ -543,7 +682,7 @@ export default function UsersPage() {
       focus: nextAppState.stats.intelligence,
       daily_hp: nextAppState.dailyHp,
       daily_hp_date: nextAppState.dailyHpDate,
-      app_state_json: createCompactAppState(nextAppState),
+      app_state_json: compactAppState,
       updated_at: updatedAt,
     };
 
@@ -576,7 +715,41 @@ export default function UsersPage() {
       }
     }
 
-    await loadRemoteAccounts();
+    setRemoteAccounts((current) =>
+      current.map((item) =>
+        item.id === account.id
+          ? {
+              ...item,
+              state: {
+                ...getEditableState(item),
+                user_id: account.id,
+                total_xp: compactAppState.totalXp,
+                lifetime_xp: compactAppState.lifetimeXp,
+                spendable_xp: compactAppState.spendableXp,
+                streak: compactAppState.streak,
+                last_completion_date: compactAppState.lastCompletionDate,
+                strength: compactAppState.stats.strength,
+                vitality: compactAppState.stats.vitality,
+                discipline: compactAppState.stats.discipline,
+                focus: compactAppState.stats.intelligence,
+                intelligence: compactAppState.stats.intelligence,
+                agility: compactAppState.stats.agility,
+                magicResistance: compactAppState.stats.magicResistance,
+                daily_hp: compactAppState.dailyHp,
+                daily_hp_date: compactAppState.dailyHpDate,
+                active_effects_json: compactAppState.activeEffects,
+                artifact_history_json: compactAppState.artifactHistory ?? [],
+                task_history_json: compactAppState.taskHistory ?? [],
+                media_library_json: [],
+                creator_audit_log_json: [],
+                app_state_json: compactAppState,
+                updated_at: updatedAt,
+              },
+            }
+          : item
+      )
+    );
+
     return true;
   }
 
@@ -593,6 +766,22 @@ export default function UsersPage() {
 
     if (error) {
       setRemoteError(error.message);
+      return;
+    }
+
+    setRemoteAccounts((current) =>
+      current.map((item) =>
+        item.id === account.id
+          ? {
+              ...item,
+              display_name: displayName,
+            }
+          : item
+      )
+    );
+
+    if (!account.state?.app_state_json) {
+      setCreatorNotice(`Saved name for ${displayName}.`);
       return;
     }
 
@@ -806,36 +995,34 @@ export default function UsersPage() {
     if (file.size > CREATOR_MEDIA_MAX_BYTES) {
       setMediaDraft((current) => ({
         ...current,
+        file: null,
+        previewUrl: "",
         fileUrl: "",
         fileType: "",
       }));
       setRemoteError(
-        `That file is ${formatFileSize(file.size)}. Data-URL media is capped at ${formatFileSize(
+        `That file is ${formatFileSize(file.size)}. Creator media uploads are capped at ${formatFileSize(
           CREATOR_MEDIA_MAX_BYTES
-        )} so the app state stays loadable. Use a smaller optimized image for now.`
+        )}. Use an optimized image or short animation.`
       );
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      setMediaDraft((current) => ({
-        ...current,
-        fileUrl: result,
-        fileType: file.type || "application/octet-stream",
-        title: current.title || file.name,
-        altText: current.altText || file.name,
-      }));
-    };
-    reader.onerror = () => {
-      setRemoteError("The selected media file could not be read.");
-    };
-    reader.readAsDataURL(file);
+    const previewUrl = URL.createObjectURL(file);
+
+    setMediaDraft((current) => ({
+      ...current,
+      file,
+      previewUrl,
+      fileUrl: "",
+      fileType: file.type || "application/octet-stream",
+      title: current.title || file.name,
+      altText: current.altText || file.name,
+    }));
   }
 
   async function saveCreatorMedia() {
-    if (!mediaDraft.fileUrl) return;
+    if (!mediaDraft.file && !mediaDraft.fileUrl.trim()) return;
 
     setRemoteError(null);
     setCreatorNotice(null);
@@ -848,23 +1035,49 @@ export default function UsersPage() {
       }
 
       const headers = await getCreatorAuthHeaders();
-      const response = await fetch("/api/creator/media", {
-        method: "POST",
-        headers: {
-          ...headers,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          targetType: mediaDraft.targetType,
-          targetId: mediaDraft.targetId.trim() || "default",
-          scope: mediaDraft.scope,
-          userId: mediaDraft.scope === "user" ? mediaDraft.accountId : null,
-          fileUrl: mediaDraft.fileUrl,
-          fileType: mediaDraft.fileType,
-          altText: mediaDraft.altText,
-          title: mediaDraft.title,
-        }),
-      });
+      const targetId = mediaDraft.targetId.trim() || "default";
+      let response: Response;
+
+      if (mediaDraft.file) {
+        const formData = new FormData();
+
+        formData.append("file", mediaDraft.file, mediaDraft.file.name);
+        formData.append("targetType", mediaDraft.targetType);
+        formData.append("targetId", targetId);
+        formData.append("scope", mediaDraft.scope);
+        formData.append(
+          "userId",
+          mediaDraft.scope === "user" ? mediaDraft.accountId ?? "" : ""
+        );
+        formData.append("altText", mediaDraft.altText);
+        formData.append("title", mediaDraft.title);
+
+        response = await fetch("/api/creator/media/upload", {
+          method: "POST",
+          headers,
+          body: formData,
+        });
+      } else {
+        response = await fetch("/api/creator/media", {
+          method: "POST",
+          headers: {
+            ...headers,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            targetType: mediaDraft.targetType,
+            targetId,
+            scope: mediaDraft.scope,
+            userId: mediaDraft.scope === "user" ? mediaDraft.accountId : null,
+            fileUrl: mediaDraft.fileUrl.trim(),
+            fileType:
+              mediaDraft.fileType || inferMediaTypeFromUrl(mediaDraft.fileUrl),
+            altText: mediaDraft.altText,
+            title: mediaDraft.title,
+          }),
+        });
+      }
+
       const body = (await response.json().catch(() => ({}))) as CreatorMediaResponse;
 
       if (!response.ok) {
@@ -872,10 +1085,12 @@ export default function UsersPage() {
       }
 
       setCreatorNotice(
-        `Saved ${mediaDraft.scope} media for ${mediaDraft.targetType}/${mediaDraft.targetId.trim() || "default"}.`
+        `Saved ${mediaDraft.scope} media for ${mediaDraft.targetType}/${targetId}.`
       );
       setMediaDraft((current) => ({
         ...current,
+        file: null,
+        previewUrl: "",
         fileUrl: "",
         fileType: "",
         title: "",
@@ -949,7 +1164,7 @@ export default function UsersPage() {
           <PanelCard className="border-purple-500">
             <h2 className="text-xl text-purple-200">Creator Media Uploads</h2>
             <p className="text-sm text-zinc-400">
-              Upload artifact and page media without waiting for the player account list. Global and fallback media apply through the dedicated media table.
+              Upload artifact and page media without waiting for the player account list. Files are stored in Supabase Storage, and the database only saves the public URL.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1 text-sm text-zinc-300">
@@ -1085,6 +1300,25 @@ export default function UsersPage() {
                   className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
                 />
               </label>
+
+              <label className="space-y-1 text-sm text-zinc-300 md:col-span-2">
+                Hosted media URL
+                <input
+                  value={mediaDraft.fileUrl}
+                  onChange={(event) => {
+                    const fileUrl = event.target.value;
+                    setMediaDraft((current) => ({
+                      ...current,
+                      file: null,
+                      previewUrl: "",
+                      fileUrl,
+                      fileType: inferMediaTypeFromUrl(fileUrl),
+                    }));
+                  }}
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-white"
+                  placeholder="https://... or choose a file below"
+                />
+              </label>
             </div>
 
             <input
@@ -1094,23 +1328,23 @@ export default function UsersPage() {
               className="w-full"
             />
 
-            {mediaDraft.fileUrl && (
+            {(mediaDraft.previewUrl || mediaDraft.fileUrl) && (
               <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
                 <p className="mb-2 text-sm text-zinc-400">Preview before publish</p>
                 {mediaDraft.fileType.startsWith("video/") ? (
                   <video
-                    src={mediaDraft.fileUrl}
+                    src={mediaDraft.previewUrl || mediaDraft.fileUrl}
                     className="max-h-64 w-full rounded object-contain"
                     controls
                   />
                 ) : mediaDraft.fileType.includes("json") ? (
                   <pre className="max-h-64 overflow-auto text-xs text-zinc-300">
-                    {mediaDraft.fileUrl.slice(0, 1200)}
+                    {mediaDraft.file?.name ?? mediaDraft.fileUrl.slice(0, 1200)}
                   </pre>
                 ) : (
                   <div className="relative h-64 w-full">
                     <Image
-                      src={mediaDraft.fileUrl}
+                      src={mediaDraft.previewUrl || mediaDraft.fileUrl}
                       alt={mediaDraft.altText || "Media preview"}
                       fill
                       unoptimized
@@ -1126,7 +1360,7 @@ export default function UsersPage() {
               <ActionButton
                 onClick={saveCreatorMedia}
                 variant="purple"
-                disabled={!mediaDraft.fileUrl}
+                disabled={!mediaDraft.file && !mediaDraft.fileUrl.trim()}
               >
                 Save Media
               </ActionButton>
@@ -1204,10 +1438,16 @@ export default function UsersPage() {
                 magicResistance: editableState.magicResistance,
               });
               const rank = getSystemRank(account.state?.total_xp ?? 0, stats);
-              const accountAppState = getAccountAppState(account);
-              const completedQuestCount = accountAppState.quests.filter(
-                (quest) => quest.completed
-              ).length;
+              const hasDetailedState = Boolean(account.state?.app_state_json);
+              const isEditorOpen =
+                expandedAccountId === account.id && hasDetailedState;
+              const accountAppState = isEditorOpen
+                ? getAccountAppState(account)
+                : null;
+              const completedQuestCount = accountAppState
+                ? accountAppState.quests.filter((quest) => quest.completed)
+                    .length
+                : 0;
               const isPrimaryCreator =
                 account.email.toLowerCase() === primaryCreatorEmail;
 
@@ -1332,6 +1572,26 @@ export default function UsersPage() {
                       Daily reminders enabled
                     </label>
 
+                    <div className="flex flex-col gap-3 rounded border border-zinc-800 bg-zinc-900 px-3 py-3 md:flex-row md:items-center md:justify-between">
+                      <p className="text-sm text-zinc-400">
+                        Open this player when you need quests, profile fields,
+                        artifacts, notes, or advanced JSON.
+                      </p>
+                      <ActionButton
+                        onClick={() => void toggleAccountEditor(account)}
+                        variant={isEditorOpen ? "gray" : "blue"}
+                        disabled={loadingAccountStateId === account.id}
+                      >
+                        {loadingAccountStateId === account.id
+                          ? "Loading Editor..."
+                          : isEditorOpen
+                          ? "Hide Editor"
+                          : "Open Editor"}
+                      </ActionButton>
+                    </div>
+
+                    {isEditorOpen && accountAppState ? (
+                      <>
                     <div className="border-t border-zinc-800 pt-4">
                       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
@@ -2137,6 +2397,13 @@ export default function UsersPage() {
                         ))}
                       </div>
                     </div>
+                      </>
+                    ) : (
+                      <p className="rounded border border-zinc-800 bg-zinc-900 px-3 py-3 text-sm text-zinc-400">
+                        Editor closed. The account list is loaded without full
+                        player JSON so creator view stays responsive.
+                      </p>
+                    )}
                   </div>
                 </PanelCard>
               );

@@ -93,6 +93,7 @@ export async function GET(request: Request) {
   const { data, error } = await supabase
     .from("creator_media")
     .select("id,uploaded_by,target_type,target_id,scope,user_id,file_url,file_type,alt_text,title,created_at,updated_at")
+    .not("file_url", "like", "data:%")
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -154,6 +155,23 @@ export async function POST(request: Request) {
   if (!fileUrl || !fileType) {
     return NextResponse.json(
       { error: "Media file data is required." },
+      { status: 400 }
+    );
+  }
+
+  if (fileUrl.startsWith("data:")) {
+    return NextResponse.json(
+      {
+        error:
+          "Database media cannot be saved as a data URL. Upload the file to Storage or paste a hosted URL.",
+      },
+      { status: 400 }
+    );
+  }
+
+  if (fileUrl.length > 4096) {
+    return NextResponse.json(
+      { error: "Media URLs are capped at 4096 characters." },
       { status: 400 }
     );
   }

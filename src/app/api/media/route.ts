@@ -69,6 +69,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("creator_media")
     .select("id,uploaded_by,target_type,target_id,scope,user_id,file_url,file_type,alt_text,title,created_at,updated_at")
+    .not("file_url", "like", "data:%")
     .order("created_at", { ascending: false })
     .limit(100);
 
