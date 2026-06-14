@@ -48,8 +48,49 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_STARTUP_TIMEOUT_MS = 8000;
 const PRIMARY_CREATOR_EMAIL = "pierremoussa6@gmail.com";
 
+type PasswordFallbackResponse = {
+  session?: Session;
+  error?: string;
+};
+
 function getAuthErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function isNetworkAuthError(error: unknown) {
+  const message = getAuthErrorMessage(error, "");
+
+  return /failed to fetch|networkerror|load failed|timed out/i.test(message);
+}
+
+function getUnavailableAuthMessage(error: unknown) {
+  const message = getAuthErrorMessage(
+    error,
+    "The System could not contact Supabase auth."
+  );
+
+  return isNetworkAuthError(error)
+    ? "Supabase auth is not responding. Check that the Supabase project is active, then try again."
+    : message;
+}
+
+async function signInWithPasswordFallback(email: string, password: string) {
+  const response = await fetch("/api/auth/password", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as PasswordFallbackResponse;
+
+  if (!response.ok || !payload.session) {
+    throw new Error(
+      payload.error ?? "The System could not complete server-side login."
+    );
+  }
+
+  return payload.session;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
@@ -300,16 +341,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
       }
     }
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (signInError) {
-      setError(signInError.message);
-      throw signInError;
+      if (signInError) {
+        setError(signInError.message);
+        throw signInError;
+      }
+    } catch (signInError) {
+      if (!isNetworkAuthError(signInError)) {
+        const message = getAuthErrorMessage(
+          signInError,
+          "The System rejected the request."
+        );
+
+        setError(message);
+        throw signInError;
+      }
+
+      try {
+        const fallbackSession = await signInWithPasswordFallback(email, password);
+        const { data, error: setSessionError } = await supabase.auth.setSession({
+          access_token: fallbackSession.access_token,
+          refresh_token: fallbackSession.refresh_token,
+        });
+
+        if (setSessionError) {
+          throw setSessionError;
+        }
+
+        const nextSession = data.session ?? fallbackSession;
+
+        setSession(nextSession);
+        setProfile(normalizeProfile(nextSession.user, null));
+        setStatus("authenticated");
+
+        try {
+          await loadProfile(nextSession.user);
+        } catch (profileError) {
+          setError(
+            getAuthErrorMessage(
+              profileError,
+              "The System could not load your profile."
+            )
+          );
+        }
+      } catch (fallbackError) {
+        const message = getUnavailableAuthMessage(fallbackError);
+
+        setError(message);
+        throw new Error(message);
+      }
     }
-  }, []);
+  }, [loadProfile]);
 
   const signUp = useCallback(
     async (email: string, password: string, displayName: string) => {
